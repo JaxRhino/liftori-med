@@ -133,6 +133,11 @@
   .ptabs{display:flex;border-top:1px solid var(--line);background:var(--panel)}
   .ptabs button{flex:1;border:none;background:transparent;padding:11px 4px 14px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--faint);font-size:10px;font-weight:500}
   .ptabs button.on{color:var(--teal)}
+  .pa-shell{min-height:100vh;display:flex;justify-content:center;background:var(--bg)}
+  .pa-screen{width:100%;max-width:460px;display:flex;flex-direction:column;min-height:100vh;background:var(--bg)}
+  .pa-screen .pstat{display:flex;justify-content:space-between;align-items:center;padding:12px 18px 4px;font-size:12px;color:var(--faint)}
+  .patype{flex:1;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:9px;font-size:12px;font-weight:600;color:var(--deep);cursor:pointer}
+  .patype.on{background:var(--teal);color:#fff;border-color:var(--teal)}
   .pgreet{font-size:12px;color:var(--muted);margin-top:8px}
   .pname{font-family:var(--serif);font-size:23px;font-weight:500;margin-top:1px}
   .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-top:14px}
@@ -259,7 +264,7 @@
     <button id="sw-provider" class="on" onclick="setSurface('provider')">Provider workspace</button>
     <button id="sw-patient" onclick="setSurface('patient')">Patient app</button>
   </div>
-  <div class="env">Wave 1 preview</div>
+  <div class="env"><button onclick="openPatientApp()" style="background:var(--teal);color:#fff;border:none;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">Open live patient app &#8599;</button></div>
 </div>
 
 <!-- PROVIDER -->
@@ -595,6 +600,7 @@ function scrHome(){
     +'<div class="tmem"><div class="av2">+</div><div class="tn">Add</div><div class="tr">provider</div></div></div>';
 }
 function scrFind(){
+  if(patient.live){ return scrFindLive(); }
   if(findStep==='start'){
     return '<div class="stitle">Find care</div>'
       +'<div class="navi"><div class="nh">'+svg(ICON.spark,'ic ic-sm')+'Liftori-Med navigator</div><div class="nq">What do you need help with?</div>'
@@ -629,6 +635,45 @@ function confirmBooking(){
   renderPbody();
   toast('Booked — and synced to the clinic');
 }
+function paInitials(n){ n=(n||'').replace(/^Dr\.?\s*/i,''); var p=n.split(' ').filter(Boolean); return (((p[0]||'')[0]||'')+((p[1]||'')[0]||'')).toUpperCase(); }
+function openPatientApp(){ var w=window.open(location.pathname+'?view=patient','LiftoriPatient','width=430,height=900,menubar=no,toolbar=no,location=no'); if(!w) toast('Allow pop-ups to open the patient app'); }
+async function paBoot(){
+  patient.live=true; patient.fullName='Maria Gomez'; patient.providers=patient.providers||[]; patient.appts=[]; patient.lf={step:'start',sel:null,mod:'telehealth',slots:[]};
+  document.body.className='palive';
+  document.body.innerHTML='<div class="pa-shell"><div class="pa-screen"><div class="pstat"><span>9:41</span><span id="pstat-title">Liftori&#183;Med</span><span>5G</span></div><div class="pbody" id="pbody"></div><div class="ptabs" id="ptabs"></div></div></div>';
+  if(window.supabase){ try{ window.LSB=window.supabase.createClient(SB_URL,SB_KEY); }catch(e){} }
+  if(window.LSB){ try{ var pr=await window.LSB.rpc('pt_providers'); if(pr.data) patient.providers=pr.data.map(function(p){return {id:p.id,name:p.name,title:p.title};}); }catch(e){} await paLoadAppts(); }
+  if(patient.providers.length){ patient.team=patient.providers.map(function(p){return {i:paInitials(p.name),n:p.name,r:(p.title||'').split(',')[0]};}); }
+  pTab='home'; renderPatient();
+}
+function paWhen(iso){ var ymd=iso.slice(0,10),hh=iso.slice(11,13),mm=iso.slice(14,16); var dt=new Date(ymd+'T12:00:00Z'); var t0=rcDayYmd(0),t1=rcDayYmd(1); var rel=ymd===t0?'Today':(ymd===t1?'Tomorrow':dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'})); return rel+', '+rcTime12(hh,mm); }
+async function paLoadAppts(){ if(!window.LSB) return; try{ var r=await window.LSB.rpc('pt_my_appointments',{p_patient_name:patient.fullName}); if(r.data){ patient.appts=r.data.map(function(a){return {id:a.id,provider:a.provider_name,vt:a.visit_type,starts:a.starts_at,mod:a.modality,status:a.status};}); var nx=patient.appts[0]; if(nx){ patient.next={title:nx.vt+' · '+nx.provider, when:paWhen(nx.starts), has:true, mod:nx.mod}; } else { patient.next={has:false}; } } }catch(e){} }
+function paGenSlots(){ var out=[]; var times=[['09','00'],['11','00'],['13','30'],['15','00']]; var d=1; while(out.length<8 && d<12){ var ymd=rcDayYmd(d); var dt=new Date(ymd+'T12:00:00Z'); var dow=dt.getUTCDay(); if(dow!==0&&dow!==6){ var lab=dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); for(var i=0;i<times.length&&out.length<8;i++){ out.push({ymd:ymd,hh:times[i][0],mm:times[i][1],dayLab:lab,t12:rcTime12(times[i][0],times[i][1])}); } } d++; } return out; }
+function scrFindLive(){
+  var lf=patient.lf;
+  if(lf.step==='start'){
+    var rows=(patient.providers||[]).map(function(p){ return '<div class="provrow" onclick="paPickProvider(\''+p.id+'\')"><span class="av2">'+paInitials(p.name)+'</span><div><div class="pn">'+p.name+'</div><div class="pr">'+(p.title||'')+'</div></div><span class="match">Book &rsaquo;</span></div>'; }).join('');
+    if(!rows) rows='<div class="pcard"><div style="font-size:13px;color:var(--muted)">Loading providers&#8230;</div></div>';
+    return '<div class="stitle">Find care</div><div class="navi"><div class="nh">'+svg(ICON.spark,'ic ic-sm')+'Liftori-Med navigator</div><div class="nq">Who would you like to see?</div><div class="ans">These providers are in your network and booking now. Pick one to see live openings.</div></div>'+rows;
+  }
+  if(lf.step==='slots'){
+    var slots=lf.slots;
+    return '<button class="rcp-mini" style="margin:2px 0 10px;background:none;border:none;color:var(--teal);cursor:pointer;font-size:13px" onclick="paFindBack()">&lsaquo; Providers</button>'
+      +'<div class="stitle">'+lf.providerName+'</div><div class="pr" style="font-size:12px;color:var(--faint);margin-top:2px">'+(lf.providerTitle||'')+' &#183; booking live</div>'
+      +'<div class="slotlab">Visit type</div><div style="display:flex;gap:8px;margin:6px 0 4px"><button class="patype'+(lf.mod==='telehealth'?' on':'')+'" onclick="paSetMod(\'telehealth\')">Video visit</button><button class="patype'+(lf.mod==='in_person'?' on':'')+'" onclick="paSetMod(\'in_person\')">In person</button></div>'
+      +'<div class="slotlab">Available</div><div class="slots">'+slots.map(function(sl,i){return '<div class="slot'+(lf.sel===i?' sel':'')+'" onclick="paPickSlot('+i+')">'+sl.dayLab+'<div class="d">'+sl.t12+'</div></div>';}).join('')+'</div>'
+      +(lf.sel!=null?'<button class="pbtn alt" onclick="paConfirm()" style="margin-top:16px">Confirm '+slots[lf.sel].dayLab+' &#183; '+slots[lf.sel].t12+'</button>':'<button class="pbtn ghost" style="margin-top:16px">Pick a time</button>');
+  }
+  if(lf.step==='done'){
+    return '<div class="success"><div class="ring">'+svg(ICON.check)+'</div><h3>You&#8217;re booked</h3><p>'+lf.doneLabel+' with '+lf.providerName+'. It&#8217;s on the clinic&#8217;s schedule now and we&#8217;ll text your reminder &amp; intake.</p><button class="pbtn alt" onclick="paGoHome()" style="margin-top:18px">Back to home</button></div>';
+  }
+}
+function paPickProvider(id){ var p=(patient.providers||[]).find(function(x){return x.id===id;}); if(!p) return; patient.lf.providerId=id; patient.lf.providerName=p.name; patient.lf.providerTitle=p.title; patient.lf.slots=paGenSlots(); patient.lf.sel=null; patient.lf.step='slots'; renderPbody(); }
+function paFindBack(){ patient.lf.step='start'; patient.lf.sel=null; renderPbody(); }
+function paSetMod(m){ patient.lf.mod=m; renderPbody(); }
+function paPickSlot(i){ patient.lf.sel=i; renderPbody(); }
+async function paConfirm(){ var lf=patient.lf; if(lf.sel==null) return; var sl=lf.slots[lf.sel]; var startIso=sl.ymd+'T'+sl.hh+':'+sl.mm+':00+00:00'; var vt=((lf.providerTitle||'').toLowerCase().indexOf('psych')>-1)?'Med management':'Therapy'; var dur=(vt==='Med management')?30:50; if(window.LSB){ try{ await window.LSB.rpc('pt_book_appointment',{p_provider:lf.providerId,p_patient_name:patient.fullName,p_visit_type:vt,p_start:startIso,p_dur:dur,p_mod:lf.mod}); }catch(e){} } lf.doneLabel=sl.dayLab+' at '+sl.t12; lf.step='done'; await paLoadAppts(); renderPbody(); toast('Booked — synced to the clinic'); }
+function paGoHome(){ patient.lf={step:'start',sel:null,mod:'telehealth',slots:[]}; pTab='home'; renderPatient(); var b=document.getElementById('pbody'); if(b) b.scrollTop=0; }
 function goVideo(){pTab='video';renderPtabs();renderPbody();}
 function scrVideo(){
   return '<div class="vid" style="margin:-6px -18px 0;border-radius:0">'
@@ -1216,7 +1261,7 @@ function rcXfer(){ toast('Transferring to triage nurse…'); }
 function rcEnd(res){ const c=rc.active; if(rc.live&&c&&c.id) sbUpd('cc_calls',c.id,{status:'completed',disposition:(res==='done'?'Ended':res)+(rc.callReason?' / '+rc.callReason:''),ended_at:new Date().toISOString(),duration_seconds:rc.secs}); rcStop(); rc.active=null; const reason=rc.callReason?(' · '+rc.callReason):''; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res)+reason,when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rc.callReason=''; rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
 
 /* ---------------- init ---------------- */
-const _vw=new URLSearchParams(location.search).get('view'); if(_vw==='reception'){ rcBoot(); } else if(_vw==='visit'){ vzBoot(); } else if(_vw==='intake'){ ixBoot(); } else { renderNav();renderMain();renderPtabs(); }
+const _vw=new URLSearchParams(location.search).get('view'); if(_vw==='reception'){ rcBoot(); } else if(_vw==='visit'){ vzBoot(); } else if(_vw==='intake'){ ixBoot(); } else if(_vw==='patient'){ paBoot(); } else { renderNav();renderMain();renderPtabs(); }
 </script>
 </body>
 </html>
