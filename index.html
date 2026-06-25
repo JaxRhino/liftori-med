@@ -674,7 +674,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[], claims:[], pauths:[], appealView:null, refills:[],
+  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[], claims:[], pauths:[], appealView:null, refills:[], refs:[],
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -713,7 +713,7 @@ function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
   const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
-  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['intake','Intake'],['outreach','Outreach'],['billing','Billing'],['meds','Meds'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['intake','Intake'],['outreach','Outreach'],['billing','Billing'],['meds','Meds'],['refs','Referrals'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
   if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
@@ -725,6 +725,7 @@ function rcHtml(){
   else if(rc.sec==='intake') body=rcIntakeHtml();
   else if(rc.sec==='billing') body=rcBillingHtml();
   else if(rc.sec==='meds') body=rcMedsHtml();
+  else if(rc.sec==='refs') body=rcRefsHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
@@ -952,7 +953,7 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); await rcLoadBilling(); await rcLoadMeds(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); await rcLoadBilling(); await rcLoadMeds(); await rcLoadRefs(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
 async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob,allergies,conditions,medications'); if(r.data){ r.data.forEach(p=>{ const nm=((p.first_name||'')+' '+(p.last_name||'')).trim(); const loc=provider.patients.find(x=>x.name===nm); if(loc){ loc._id=p.id; if(p.allergies&&p.allergies.length) loc.allergies=p.allergies; if(p.conditions&&p.conditions.length) loc.conditions=p.conditions; if(p.medications&&p.medications.length) loc.meds=p.medications; if(!loc.dob&&p.dob) loc.dob=p.dob; if(!loc.phone&&p.phone) loc.phone=p.phone; if((!loc.payer||loc.payer==='—')&&p.insurance_payer) loc.payer=p.insurance_payer; } else { provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:p.medications||[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],allergies:p.allergies||[],conditions:p.conditions||[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
@@ -978,6 +979,7 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'claims'},()=>{ rcLoadBilling().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'prior_auths'},()=>{ rcLoadBilling().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'refill_requests'},()=>{ rcLoadMeds().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'referrals'},()=>{ rcLoadRefs().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
@@ -1118,6 +1120,20 @@ function rcMedsHtml(){
 }
 async function rcLoadMeds(){ try{ const r=await sbc.from('refill_requests').select('*').order('created_at',{ascending:false}); if(r.data) rc.refills=r.data.map(x=>({id:x.id,name:x.patient_name,med:x.medication,pharmacy:x.pharmacy,status:x.status})); }catch(e){} }
 function rcRefillAction(id){ const r=rc.refills.find(x=>x.id===id); if(!r) return; r.status=(r.status==='requested'?'approved':'sent'); if(rc.live){ try{ sbc.from('refill_requests').update({status:r.status}).eq('id',id); }catch(e){} } rcRender(); toast(r.status==='approved'?('Refill approved for '+r.name):('Sent to '+(r.pharmacy||'pharmacy'))); }
+function rcRefsHtml(){
+  const open=rc.refs.filter(r=>r.status==='sent'||r.status==='scheduled').length;
+  const done=rc.refs.filter(r=>r.status==='completed').length;
+  const closed=rc.refs.filter(r=>r.status==='completed'||r.status==='declined').length;
+  const rate=rc.refs.length?Math.round(done/rc.refs.length*100):0;
+  const kp='<div class="rcp-kpis" style="grid-template-columns:repeat(3,1fr)"><div class="rcp-kpi"><div class="v">'+open+'</div><div class="l">Open loops</div></div><div class="rcp-kpi"><div class="v">'+done+'</div><div class="l">Completed</div></div><div class="rcp-kpi"><div class="v">'+rate+'%</div><div class="l">Close rate</div></div></div>';
+  const chip=st=>st==='completed'?'<span class="chip ok">Completed</span>':(st==='declined'?'<span class="chip rec">Declined</span>':(st==='scheduled'?'<span class="chip" style="background:var(--mint);color:var(--teal-600)">Scheduled</span>':'<span class="chip in">Sent</span>'));
+  const btn=r=>(r.status==='sent')?'<button class="rcp-mini" onclick="rcRefAction(\''+r.id+'\',\'scheduled\')">Mark scheduled</button>':((r.status==='scheduled')?'<button class="rcp-mini" onclick="rcRefAction(\''+r.id+'\',\'completed\')">Close loop</button>':'');
+  const list=rc.refs.length?rc.refs.map(r=>'<div class="rcp-item" style="align-items:flex-start"><span class="rcp-ico">'+svg(ICON.users,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+r.name+' &rarr; '+r.to+'</div><div class="mt">'+(r.reason||'')+'</div></div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+chip(r.status)+btn(r)+'</div></div>').join(''):'<div class="rcp-empty">No referrals yet.</div>';
+  return '<div>'+kp+'<div class="rcp-grid2"><div class="card"><div class="ct">Outbound referrals <span class="sm">'+open+' awaiting close</span></div>'+list+'<div class="mt" style="margin-top:8px;font-size:11.5px">A referral isn’t done until the patient is seen. Track every loop to completion so nothing falls through.</div></div><div class="card"><div class="ct">New referral</div><input class="rcp-input" id="rf-name" placeholder="Patient name"><input class="rcp-input" id="rf-to" placeholder="Refer to (specialist or org)"><input class="rcp-input" id="rf-reason" placeholder="Reason"><button class="rcp-callbtn" style="background:var(--teal);height:44px;max-width:220px;margin:8px 0 0" onclick="rcNewRef()">Send referral</button></div></div></div>';
+}
+async function rcLoadRefs(){ try{ const r=await sbc.from('referrals').select('*').order('created_at',{ascending:false}); if(r.data) rc.refs=r.data.map(x=>({id:x.id,name:x.patient_name,to:x.refer_to,reason:x.reason,status:x.status})); }catch(e){} }
+function rcRefAction(id,st){ const r=rc.refs.find(x=>x.id===id); if(!r) return; r.status=st; if(rc.live){ try{ sbc.from('referrals').update({status:st}).eq('id',id); }catch(e){} } rcRender(); toast(st==='completed'?'Referral loop closed':'Marked '+st); }
+function rcNewRef(){ const nm=rcVal('rf-name'), to=rcVal('rf-to'), rs=rcVal('rf-reason'); if(!nm||!to){ toast('Patient and referral target required'); return; } const row={name:nm,to:to,reason:rs,status:'sent'}; rc.refs.unshift(Object.assign({id:Date.now()},row)); if(rc.live&&rc.practiceId){ try{ sbc.from('referrals').insert({practice_id:rc.practiceId,patient_name:nm,refer_to:to,reason:rs,status:'sent'}); }catch(e){} } rcRender(); toast('Referral sent for '+nm); }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
