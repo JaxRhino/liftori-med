@@ -359,7 +359,7 @@ function setSurface(s){
   document.getElementById('sw-patient').classList.toggle('on', s==='patient');
   if(s==='patient') renderPatient();
 }
-function toast(t){const el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2200);}
+function toast(t){ var _te=document.getElementById('toast'); if(!_te) return;const el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2200);}
 
 /* ---------------- provider render ---------------- */
 function renderNav(){
@@ -640,7 +640,7 @@ function openPatientApp(){ var w=window.open(location.pathname+'?view=patient','
 async function paBoot(){
   patient.live=true; patient.fullName='Maria Gomez'; patient.providers=patient.providers||[]; patient.appts=[]; patient.lf={step:'start',sel:null,mod:'telehealth',slots:[]};
   document.body.className='palive';
-  document.body.innerHTML='<div class="pa-shell"><div class="pa-screen"><div class="pstat"><span>9:41</span><span id="pstat-title">Liftori&#183;Med</span><span>5G</span></div><div class="pbody" id="pbody"></div><div class="ptabs" id="ptabs"></div></div></div>';
+  document.body.innerHTML='<div class="pa-shell"><div class="pa-screen"><div class="pstat"><span>9:41</span><span id="pstat-title">Liftori&#183;Med</span><span>5G</span></div><div class="pbody" id="pbody"></div><div class="ptabs" id="ptabs"></div></div><div class="toast" id="toast"></div></div>';
   if(window.supabase){ try{ window.LSB=window.supabase.createClient(SB_URL,SB_KEY); }catch(e){} }
   if(window.LSB){ try{ var pr=await window.LSB.rpc('pt_providers'); if(pr.data) patient.providers=pr.data.map(function(p){return {id:p.id,name:p.name,title:p.title};}); }catch(e){} await paLoadAppts(); }
   if(patient.providers.length){ patient.team=patient.providers.map(function(p){return {i:paInitials(p.name),n:p.name,r:(p.title||'').split(',')[0]};}); }
