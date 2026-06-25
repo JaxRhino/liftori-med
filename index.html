@@ -287,6 +287,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ---------------- shared state ---------------- */
 const ICON = {
@@ -876,9 +877,9 @@ function rcTextsHtml(){
 }
 function rcOpenThread(i){ rc.threadOpen=i; if(rc.threads[i]) rc.threads[i].unread=0; rc.sec='texts'; rcRender(); }
 function rcCloseThread(){ rc.threadOpen=null; rcRender(); }
-function rcSendSms(){ const v=rcVal('rc-sms'); if(!v||rc.threadOpen==null) return; rc.threads[rc.threadOpen].msgs.push({me:true,t:v,at:'now'}); rcRender(); toast('Text sent'); }
+function rcSendSms(){ const v=rcVal('rc-sms'); if(!v||rc.threadOpen==null) return; const th=rc.threads[rc.threadOpen]; th.msgs.push({me:true,t:v,at:'now'}); if(rc.live&&th.id&&rc.practiceId){ try{ sbc.from('cc_sms_messages').insert({thread_id:th.id,practice_id:rc.practiceId,direction:'out',body:v}); }catch(e){} } rcRender(); toast('Text sent'); }
 function rcSmsTemplate(k){ if(rc.threadOpen==null) return; const map={reschedule:'Here is a link to reschedule your appointment: liftori.me/r/9X2',reminder:'Reminder: your visit is tomorrow. Reply C to confirm or R to reschedule.',forms:'Please complete your intake before your visit: liftori.me/f/AB7'}; rc.threads[rc.threadOpen].msgs.push({me:true,t:map[k],at:'now'}); rcRender(); toast('Sent'); }
-function rcCallback(i){ const c=rc.queue[i]; if(!c) return; rc.callbacks.push({who:c.who,from:c.from,reason:c.reason}); rc.queue.splice(i,1); rcRender(); toast('Callback queued for '+c.who+' — they keep their place'); }
+function rcCallback(i){ const c=rc.queue[i]; if(!c) return; if(rc.live&&c.id) sbUpd('cc_calls',c.id,{status:'callback'}); rc.callbacks.push({who:c.who,from:c.from,reason:c.reason}); rc.queue.splice(i,1); rcRender(); toast('Callback queued for '+c.who+' — they keep their place'); }
 function rcCallbacksHtml(){ if(rc.tab!=='queue'||!rc.callbacks.length) return ''; return '<div class="rcp-sub">Callback requests ('+rc.callbacks.length+')</div>'+rc.callbacks.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.refresh,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · '+c.from+'</div></div><button class="rcp-mini" onclick="rcDoCallback('+i+')">Call back</button></div>').join(''); }
 function rcDoCallback(i){ const c=rc.callbacks[i]; if(!c) return; rc.callbacks.splice(i,1); rc.active={who:c.who,from:c.from,out:true,patient:provider.patients.some(p=>p.name===c.who),reason:'Callback · '+c.reason}; rc.sec='phone'; rcRender(); rcTick(); toast('Calling '+c.who+' back'); }
 function rcWaitlistHtml(){ if(!rc.waitlist.length) return ''; const openSlot=provider.schedule.find(r=>r.patient==='Open'); return '<div class="card" style="margin-top:16px"><div class="ct">Waitlist <span class="sm">'+rc.waitlist.length+' waiting'+(openSlot?' · open slot available':'')+'</span></div>'+rc.waitlist.map((w,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.clock,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+w.who+'</div><div class="mt">'+w.pref+'</div></div><button class="rcp-mini" onclick="rcWaitFill('+i+')"'+(openSlot?'':' disabled style="opacity:.5"')+'>Offer slot</button></div>').join('')+'</div>'; }
@@ -909,6 +910,55 @@ function rcReportsHtml(){
     +'<div class="row"><span class="who"><span class="n">Abandoned</span></span><span class="mt">1</span></div>'
     +'</div></div></div>';
 }
+const SB_URL='https://tusbmhfejoxbylrdewjf.supabase.co';
+const SB_KEY='sb_publishable_33c9Uwzz8C5jwYEap6zDNQ_xe97GnI5';
+let sbc=null;
+function rcBoot(){
+  document.body.className='rcp';
+  document.body.innerHTML='<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--muted)">Connecting…</div>';
+  if(!window.supabase){ rc.live=false; rcRender(); return; }
+  sbc=window.supabase.createClient(SB_URL,SB_KEY);
+  sbc.auth.getSession().then(({data})=>{ if(data&&data.session){ rcConnect(); } else { rcLoginScreen(); } }).catch(()=>{ rc.live=false; rcRender(); });
+}
+function rcLoginScreen(){
+  document.body.className='rcp';
+  document.body.innerHTML='<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--panel-2);padding:20px">'
+    +'<div class="card" style="width:360px;max-width:100%;text-align:center;padding:24px">'
+    +'<div style="font-size:19px;font-weight:600;margin-bottom:2px">Liftori<span style="color:var(--gold)">·</span><span style="color:var(--teal)">Med</span></div>'
+    +'<div class="mt" style="margin-bottom:18px">Front desk sign in</div>'
+    +'<input class="rcp-input" id="lg-email" placeholder="Email" value="demo@liftori-med.com"><input class="rcp-input" id="lg-pass" type="password" placeholder="Password" value="liftori-demo">'
+    +'<button class="rcp-callbtn" style="background:var(--teal);height:46px;margin-top:4px" onclick="rcDoLogin()">Sign in</button>'
+    +'<div style="font-size:11px;color:var(--faint);margin:12px 0 8px">demo environment</div>'
+    +'<button class="rcp-mini" style="margin:0" onclick="rcDemoLogin()">Enter demo (one click)</button>'
+    +'<div id="lg-err" style="color:var(--alert);font-size:12px;margin-top:12px"></div></div></div>';
+}
+function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
+function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
+async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
+async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
+async function rcConnect(){ try{ await rcLoad(); rc.live=true; rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcLoad(){
+  const [st, ca, vm, cb, th] = await Promise.all([
+    sbc.from('cc_settings').select('practice_id').limit(1),
+    sbc.from('cc_calls').select('*').eq('status','queued').order('started_at'),
+    sbc.from('cc_voicemails').select('*').order('created_at',{ascending:false}),
+    sbc.from('cc_callbacks').select('*').eq('status','waiting'),
+    sbc.from('cc_sms_threads').select('*, cc_sms_messages(*)').order('last_message_at',{ascending:false})
+  ]);
+  rc.practiceId=(st.data&&st.data[0]&&st.data[0].practice_id)||(ca.data&&ca.data[0]&&ca.data[0].practice_id)||null;
+  if(ca.data) rc.queue=ca.data.map(c=>({id:c.id,from:c.from_number||'',who:c.caller_name||'Caller',patient:!!c.patient_id,reason:c.reason||'',waited:'live'}));
+  if(vm.data) rc.vm=vm.data.map(v=>({id:v.id,who:v.caller_name||'Caller',from:v.from_number||'',len:(v.length_seconds||0)+'s',when:'voicemail',unheard:!!v.unheard}));
+  if(cb.data) rc.callbacks=cb.data.map(c=>({id:c.id,who:c.caller_name||'Caller',from:c.from_number||'',reason:c.reason||''}));
+  if(th.data) rc.threads=th.data.map(t=>({id:t.id,who:t.display_name||'Patient',unread:t.unread||0,msgs:((t.cc_sms_messages)||[]).slice().sort((a,b)=>(a.created_at<b.created_at?-1:1)).map(m=>({me:m.direction==='out',t:m.body,at:''}))}));
+}
+function rcSubscribe(){ try{ sbc.channel('rclive')
+  .on('postgres_changes',{event:'*',schema:'public',table:'cc_calls'},rcSoftReload)
+  .on('postgres_changes',{event:'*',schema:'public',table:'cc_sms_messages'},rcSoftReload)
+  .on('postgres_changes',{event:'*',schema:'public',table:'cc_callbacks'},rcSoftReload)
+  .subscribe(); }catch(e){} }
+let _rcRT=null;
+function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
+async function sbUpd(table,id,patch){ if(!sbc||!id) return; try{ await sbc.from(table).update(patch).eq('id',id); }catch(e){} }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
@@ -928,15 +978,15 @@ function rcDial(){ if(!rc.dial) return; rc.active={who:rc.dial,from:'Outbound',o
 function rcSimIn(){ const c=rc.queue[0]||{from:'(904) 555-0204',who:'New caller',patient:false,reason:'New patient'}; rc.incoming={...c}; rcRender(); toast('Incoming call'); }
 function rcAnswer(){ rc.active={...rc.incoming}; rc.incoming=null; rc.muted=false; rc.hold=false; rc.queue=rc.queue.filter(q=>q.from!==rc.active.from); rcRender(); rcTick(); }
 function rcDecline(){ const c=rc.incoming; rc.incoming=null; rcRender(); toast((c?c.who:'Caller')+' sent to Liftori AI'); }
-function rcPick(i){ const c=rc.queue[i]; if(!c) return; rc.active={...c}; rc.queue.splice(i,1); rcRender(); rcTick(); }
+function rcPick(i){ const c=rc.queue[i]; if(!c) return; if(rc.live&&c.id) sbUpd('cc_calls',c.id,{status:'active',answered_at:new Date().toISOString()}); rc.active={...c}; rc.queue.splice(i,1); rcRender(); rcTick(); }
 function rcVm(i){ const v=rc.vm[i]; if(!v) return; if(v.unheard){v.unheard=false;} rc.active={who:v.who,from:v.from,out:true,patient:false,reason:'Returning voicemail'}; rcRender(); rcTick(); toast('Calling '+v.who+' back'); }
 function rcMute(){ rc.muted=!rc.muted; rcRender(); rcTick(); }
 function rcHold(){ rc.hold=!rc.hold; rcRender(); rcTick(); }
 function rcXfer(){ toast('Transferring to triage nurse…'); }
-function rcEnd(res){ const c=rc.active; rcStop(); rc.active=null; const reason=rc.callReason?(' · '+rc.callReason):''; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res)+reason,when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rc.callReason=''; rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
+function rcEnd(res){ const c=rc.active; if(rc.live&&c&&c.id) sbUpd('cc_calls',c.id,{status:'completed',disposition:(res==='done'?'Ended':res)+(rc.callReason?' / '+rc.callReason:''),ended_at:new Date().toISOString(),duration_seconds:rc.secs}); rcStop(); rc.active=null; const reason=rc.callReason?(' · '+rc.callReason):''; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res)+reason,when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rc.callReason=''; rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
 
 /* ---------------- init ---------------- */
-if(new URLSearchParams(location.search).get('view')==='reception'){ document.body.className='rcp'; rcRender(); }
+if(new URLSearchParams(location.search).get('view')==='reception'){ rcBoot(); }
 else { renderNav();renderMain();renderPtabs(); }
 </script>
 </body>
