@@ -242,6 +242,10 @@
   .rcp-sub{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px}
   .rcp-chk{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;flex:none;background:#fff;color:#fff;padding:0}
   .rcp-chk.on{background:var(--ok);border-color:var(--ok)}
+  .rcp-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+  .rcp-kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 13px}
+  .rcp-kpi .v{font-family:var(--serif);font-size:20px;font-weight:500} .rcp-kpi .l{font-size:11px;color:var(--muted)}
+  @media(max-width:1040px){.rcp-kpis{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -320,11 +324,11 @@ const provider = {
     {time:'4:00',patient:'Open',v:'Held for same-day',chip:'in',chipL:'Available'}
   ],
   patients:[
-    {initials:'MG',name:'Maria Gomez',mt:'New patient · anxiety, sleep',status:'Active',phone:'(904) 555-0148',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 1:30 PM',since:'Jun 2026',meds:['Sertraline 50mg','Hydroxyzine 25mg']},
-    {initials:'AK',name:'Aaron Klein',mt:'Therapy · biweekly',status:'Active',phone:'(904) 555-0112',payer:'Aetna',provider:'Dr. Liu',next:'Today, 9:00 AM',since:'Jan 2026',meds:['Escitalopram 10mg']},
-    {initials:'PS',name:'Priya Shah',mt:'Med management',status:'Active',phone:'(904) 555-0177',payer:'Cigna',provider:'Dr. Patel',next:'Today, 10:00 AM',since:'Mar 2025',meds:['Bupropion XL 150mg']},
-    {initials:'JP',name:'James Park',mt:'Therapy · weekly',status:'Active',phone:'(904) 555-0190',payer:'UnitedHealthcare',provider:'Dr. Liu',next:'Today, 11:00 AM',since:'Nov 2025',meds:[]},
-    {initials:'DR',name:'Dana Reyes',mt:'Therapy · telehealth',status:'Active',phone:'(904) 555-0163',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 3:00 PM',since:'Aug 2025',meds:['Fluoxetine 20mg']}
+    {initials:'MG',name:'Maria Gomez',mt:'New patient · anxiety, sleep',status:'Active',phone:'(904) 555-0148',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 1:30 PM',since:'Jun 2026',meds:['Sertraline 50mg','Hydroxyzine 25mg'],dob:'03/14/1991',balance:0,eligibility:'Needs check',alerts:['New patient — verify insurance'],lastVisit:'Jun 3, 2026'},
+    {initials:'AK',name:'Aaron Klein',mt:'Therapy · biweekly',status:'Active',phone:'(904) 555-0112',payer:'Aetna',provider:'Dr. Liu',next:'Today, 9:00 AM',since:'Jan 2026',meds:['Escitalopram 10mg'],dob:'07/22/1978',balance:45,eligibility:'Active',alerts:['Balance $45'],lastVisit:'Jun 10, 2026'},
+    {initials:'PS',name:'Priya Shah',mt:'Med management',status:'Active',phone:'(904) 555-0177',payer:'Cigna',provider:'Dr. Patel',next:'Today, 10:00 AM',since:'Mar 2025',meds:['Bupropion XL 150mg'],dob:'11/02/1985',balance:0,eligibility:'Active',alerts:[],lastVisit:'Jun 12, 2026'},
+    {initials:'JP',name:'James Park',mt:'Therapy · weekly',status:'Active',phone:'(904) 555-0190',payer:'UnitedHealthcare',provider:'Dr. Liu',next:'Today, 11:00 AM',since:'Nov 2025',meds:[],dob:'01/30/1996',balance:120,eligibility:'Needs check',alerts:['Balance $120','No-show history'],lastVisit:'May 28, 2026'},
+    {initials:'DR',name:'Dana Reyes',mt:'Therapy · telehealth',status:'Active',phone:'(904) 555-0163',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 3:00 PM',since:'Aug 2025',meds:['Fluoxetine 20mg'],dob:'09/09/1989',balance:0,eligibility:'Active',alerts:['Consent renewal due'],lastVisit:'Jun 9, 2026'}
   ]
 };
 const patient = {
@@ -669,7 +673,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false,
+  sec:'phone', selP:null, addP:false, callReason:'',
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -690,7 +694,7 @@ function rcHtml(){
   const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
-  if(rc.sec==='phone') body=rcPhoneHtml();
+  if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
   else if(rc.sec==='sched') body=rcSchedHtml();
   else if(rc.sec==='patients') body=rcPatientsHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
@@ -730,24 +734,43 @@ function rcCallCard(){
     +'<button class="rcp-cbtn end" onclick="rcEnd(\'done\')">'+svg(ICON.phone)+'</button></div>'
     +'<div class="rcp-dispo"><button class="go" onclick="rcEnd(\'Booked\')">Booked</button><button onclick="rcEnd(\'Message\')">Take message</button><button onclick="rcEnd(\'Refill\')">Refill → provider</button></div></div>';
 }
+function rcKpis(){
+  const k=[['0:14','Avg answer'],['2%','Abandoned'],['41','Calls today'],['72%','Booked rate']];
+  return '<div class="rcp-kpis">'+k.map(x=>'<div class="rcp-kpi"><div class="v">'+x[0]+'</div><div class="l">'+x[1]+'</div></div>').join('')+'</div>';
+}
 function rcCallWorkspace(){
   const c=rc.active; const mi=provider.patients.findIndex(p=>p.name===c.who); const p=mi>=0?provider.patients[mi]:null; const who=p?p.name:'';
-  let h='<div class="card"><div class="ct">During this call'+(p?' · '+p.name:'')+'</div>';
+  let h='<div class="card"><div class="ct">Patient access'+(p?' · '+p.name:'')+'</div>';
   if(p){
-    h+='<div class="rcp-item" style="padding:0 0 12px"><span class="av" style="width:44px;height:44px">'+p.initials+'</span><div style="flex:1"><div class="nm" style="font-size:15px">'+p.name+'</div><div class="mt">'+(p.phone||'')+(p.payer?' · '+p.payer:'')+'</div></div><button class="rcp-mini" onclick="rcSelPatient('+mi+')">Full chart</button></div>';
-    if(p.meds&&p.meds.length) h+='<div class="mt" style="margin:0 0 4px"><b style="color:var(--ink)">Meds:</b> '+p.meds.join(', ')+'</div>';
+    const al=(p.alerts||[]);
+    h+= al.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+al.map(a=>'<span class="chip rec">'+a+'</span>').join('')+'</div>' : '<div style="margin-bottom:10px"><span class="chip ok">No alerts</span></div>';
+    h+='<div class="rcp-item" style="padding:0 0 10px"><span class="av" style="width:44px;height:44px">'+p.initials+'</span><div style="flex:1"><div class="nm" style="font-size:15px">'+p.name+'</div><div class="mt">DOB '+(p.dob||'—')+' · '+(p.phone||'')+' · last visit '+(p.lastVisit||'—')+'</div></div><button class="rcp-mini" onclick="rcSelPatient('+mi+')">Full chart</button></div>';
+    h+= c.idVerified
+      ? '<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico new">'+svg(ICON.check,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">Identity verified</div><div class="mt">DOB confirmed</div></div></div>'
+      : '<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico">'+svg(ICON.users,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">Verify identity</div><div class="mt">Confirm DOB: '+(p.dob||'—')+'</div></div><button class="rcp-mini" onclick="rcVerifyId()">Verify</button></div>';
+    const eligOk = c.eligOk || p.eligibility==='Active';
+    h+='<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico">'+svg(ICON.doc,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+(p.payer||'Insurance')+'</div><div class="mt">'+(eligOk?'Eligibility active · $25 copay':'Eligibility not verified')+'</div></div>'+(eligOk?'<span class="chip ok">Active</span>':'<button class="rcp-mini" onclick="rcVerifyElig()">Verify</button>')+'</div>';
+    h+= (p.balance>0)
+      ? '<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico" style="background:var(--warn-bg);color:var(--warn);font-weight:600">$</span><div style="flex:1"><div class="nm">Balance $'+p.balance+' due</div><div class="mt">patient responsibility</div></div><button class="rcp-mini" onclick="rcCollect('+mi+')">Collect</button></div>'
+      : '<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico new">'+svg(ICON.check,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">No balance due</div></div></div>';
   } else {
-    h+='<div class="rcp-item" style="padding:0 0 12px"><span class="rcp-ico">'+svg(ICON.users,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">Not on file</div></div><button class="rcp-mini" onclick="rcSecGo(\'patients\');rcAddToggle()">Add patient</button></div>';
+    h+='<div class="rcp-item" style="padding:0 0 10px"><span class="rcp-ico">'+svg(ICON.users,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">Not on file</div></div><button class="rcp-mini" onclick="rcSecGo(\'patients\');rcAddToggle()">Add patient</button></div>';
   }
-  h+='<div class="rcp-sub" style="margin-top:6px">Quick actions</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="rcp-mini" onclick="rcSecGo(\'sched\')">Open scheduler</button><button class="rcp-mini" onclick="rcEnd(\'Booked\')">Mark booked</button><button class="rcp-mini" onclick="rcXfer()">Transfer to nurse</button></div>';
-  h+='<div class="rcp-sub">Call note</div><textarea class="rcp-input" id="rc-cnote" rows="3" style="resize:vertical;min-height:64px" placeholder="Type a note for this call…"></textarea><button class="rcp-mini" style="margin:0 0 4px" onclick="rcAddNote(\''+who+'\',\'rc-cnote\')">Save note</button>';
-  h+='<div class="rcp-sub">Add task</div><div style="display:flex;gap:8px"><input class="rcp-input" id="rc-ctask" style="margin:0" placeholder="e.g. send intake forms"><button class="rcp-mini" style="margin:0;white-space:nowrap" onclick="rcAddTask(\''+who+'\',\'rc-ctask\')">Add</button></div>';
-  if(p){ const tks=rc.tasks.filter(t=>t.who===p.name); const nts=rc.notes.filter(n=>n.who===p.name);
-    if(tks.length){ h+='<div class="rcp-sub">Open tasks</div>'+tks.map(taskRow).join(''); }
-    if(nts.length){ h+='<div class="rcp-sub">Recent notes</div>'+nts.slice(0,3).map(noteRow).join(''); }
-  }
+  const reasons=['','Scheduling','Reschedule / cancel','Refill','Billing / balance','Results / callback','Insurance','New patient','Other'];
+  h+='<div class="rcp-sub">Call reason</div><select class="rcp-input" onchange="rcSetReason(this.value)">'+reasons.map(r=>'<option value="'+r+'"'+(rc.callReason===r?' selected':'')+'>'+(r||'Select a reason…')+'</option>').join('')+'</select>';
+  h+='<div class="rcp-sub">Quick actions</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="rcp-mini" onclick="rcSecGo(\'sched\')">Schedule</button><button class="rcp-mini" onclick="rcText(\''+who+'\')">Send text</button><button class="rcp-mini" onclick="rcRefill(\''+who+'\')">Refill request</button><button class="rcp-mini" onclick="rcEscalate()">Transfer to nurse</button></div>';
+  h+='<div class="rcp-sub">Call note</div><textarea class="rcp-input" id="rc-cnote" rows="2" style="resize:vertical;min-height:54px" placeholder="Note for this call…"></textarea><button class="rcp-mini" style="margin:0 0 4px" onclick="rcAddNote(\''+who+'\',\'rc-cnote\')">Save note</button>';
+  h+='<div style="display:flex;gap:8px;margin-top:6px"><input class="rcp-input" id="rc-ctask" style="margin:0" placeholder="Add a task…"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\''+who+'\',\'rc-ctask\')">Add</button></div>';
+  if(p){ const tks=rc.tasks.filter(t=>t.who===p.name); if(tks.length){ h+='<div class="rcp-sub">Open tasks</div>'+tks.map(taskRow).join(''); } }
   return h+'</div>';
 }
+function rcVerifyId(){ if(rc.active){ rc.active.idVerified=true; rcRender(); toast('Identity verified'); } }
+function rcVerifyElig(){ if(rc.active){ rc.active.eligOk=true; const mi=provider.patients.findIndex(p=>p.name===rc.active.who); if(mi>=0) provider.patients[mi].eligibility='Active'; rcRender(); toast('Eligibility: active · $25 copay'); } }
+function rcCollect(i){ const p=provider.patients[i]; if(p){ const amt=p.balance; p.balance=0; p.alerts=(p.alerts||[]).filter(a=>a.indexOf('Balance')<0); rcRender(); toast('Collected $'+amt); } }
+function rcText(who){ rcRender(); toast(who?('Text sent to '+who):'Text sent'); }
+function rcRefill(who){ rc.tasks.unshift({id:Date.now(),t:'Refill request'+(who?' — '+who:''),who:who||'',done:false}); rcRender(); toast('Refill routed to clinical queue'); }
+function rcEscalate(){ toast('Warm transfer to triage nurse — context shared'); }
+function rcSetReason(v){ rc.callReason=v; }
 function rcPhoneHtml(){
   if(rc.incoming){
     const c=rc.incoming;
@@ -839,7 +862,7 @@ function rcVm(i){ const v=rc.vm[i]; if(!v) return; if(v.unheard){v.unheard=false
 function rcMute(){ rc.muted=!rc.muted; rcRender(); rcTick(); }
 function rcHold(){ rc.hold=!rc.hold; rcRender(); rcTick(); }
 function rcXfer(){ toast('Transferring to triage nurse…'); }
-function rcEnd(res){ const c=rc.active; rcStop(); rc.active=null; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res),when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
+function rcEnd(res){ const c=rc.active; rcStop(); rc.active=null; const reason=rc.callReason?(' · '+rc.callReason):''; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res)+reason,when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rc.callReason=''; rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
 
 /* ---------------- init ---------------- */
 if(new URLSearchParams(location.search).get('view')==='reception'){ document.body.className='rcp'; rcRender(); }
