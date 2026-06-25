@@ -230,6 +230,14 @@
   .rcp-empty{text-align:center;color:var(--muted);font-size:13px;padding:26px 10px}
   .rcp-ico{width:34px;height:34px;border-radius:9px;background:var(--mint);color:var(--teal-600);display:flex;align-items:center;justify-content:center;flex:none}
   .rcp-ico.new{background:var(--ok-bg);color:var(--ok)}
+  .rcp-nav{display:flex;gap:4px;padding:9px 16px 2px;overflow-x:auto}
+  .rcp-nav button{flex:none;border:none;background:var(--panel-2);color:var(--muted);font-size:12px;font-weight:500;padding:7px 13px;border-radius:9px;white-space:nowrap}
+  .rcp-nav button.on{background:var(--deep);color:#fff}
+  .rcp-input{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;color:var(--ink);background:#fff;margin-bottom:8px}
+  .rcp-input:focus{outline:none;border-color:var(--teal)}
+  .rcp-sub{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px}
+  .rcp-chk{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;flex:none;background:#fff;color:#fff;padding:0}
+  .rcp-chk.on{background:var(--ok);border-color:var(--ok)}
 </style>
 </head>
 <body>
@@ -656,6 +664,16 @@ const rc={
     {who:'Aaron Klein',dir:'in',res:'Booked',when:'9:02 AM',dur:'4:12'},
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
+  ],
+  sec:'phone', selP:null, addP:false,
+  tasks:[
+    {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
+    {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
+    {id:3,t:'Send intake forms to Maria Gomez',who:'Maria Gomez',done:true}
+  ],
+  notes:[
+    {id:1,text:'Prefers afternoon telehealth slots.',who:'Maria Gomez',at:'9:10 AM'},
+    {id:2,text:'Front desk: confirm fax line for Dr. Liu is back up.',who:'',at:'8:30 AM'}
   ]
 };
 function rcInit(n){return (n||'?').split(' ').map(x=>x[0]).join('').slice(0,2);}
@@ -664,17 +682,36 @@ function rcTick(){ clearInterval(rc.timer); rc.secs=0; rc.timer=setInterval(()=>
 function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
-  const cov = rc.status==='available'
-    ? '<span class="b"></span>Business hours · you’re answering · AI backup armed'
-    : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
+  const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['tasks','Tasks'],['notes','Notes']];
+  const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
+  let body='';
+  if(rc.sec==='phone') body=rcPhoneHtml();
+  else if(rc.sec==='sched') body=rcSchedHtml();
+  else if(rc.sec==='patients') body=(rc.selP!=null?rcPatientDetailHtml(rc.selP):rcPatientsHtml());
+  else if(rc.sec==='tasks') body=rcTasksHtml();
+  else body=rcNotesHtml();
+  return '<div class="rcp-wrap">'
+    +'<div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Reception</div>'
+    +'<div class="rcp-who"><span class="av">'+rc.agent.initials+'</span><select onchange="rcSetStatus(this.value)">'
+    +['available','break','off'].map(o=>'<option value="'+o+'"'+(rc.status===o?' selected':'')+'>'+({available:'Available',break:'On break',off:'Off'})[o]+'</option>').join('')
+    +'</select></div></div>'
+    +'<div class="rcp-cov">'+cov+'</div>'+nav
+    +'<div class="rcp-body">'+body+'</div><div class="toast" id="toast"></div></div>';
+}
+function rcVal(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
+function taskRow(t){ return '<div class="rcp-item"><button class="rcp-chk '+(t.done?'on':'')+'" onclick="rcToggleTask('+t.id+')">'+(t.done?svg(ICON.check,'ic ic-sm'):'')+'</button><div style="flex:1"><div class="nm" style="'+(t.done?'text-decoration:line-through;color:var(--faint)':'')+'">'+t.t+'</div>'+(t.who?'<div class="mt">'+t.who+'</div>':'')+'</div></div>'; }
+function noteRow(n){ return '<div class="rcp-item" style="align-items:flex-start"><span class="rcp-ico">'+svg(ICON.doc,'ic ic-sm')+'</span><div style="flex:1"><div class="nm" style="font-weight:400;font-size:12.5px;line-height:1.45">'+n.text+'</div><div class="mt">'+(n.who?n.who+' · ':'')+n.at+'</div></div></div>'; }
+
+function rcPhoneHtml(){
   let top='';
   if(rc.incoming){
     const c=rc.incoming;
     top='<div class="rcp-call ring"><div class="rcp-bigav">'+(c.patient?rcInit(c.who):'?')+'</div>'
       +'<div class="nm">'+c.who+'</div><div class="rs">'+c.from+' · '+c.reason+'</div>'
       +(c.patient?'<span class="chip ok chip">Existing patient</span>':'<span class="chip new chip">New caller</span>')
-      +'<div class="rcp-actions"><button class="rcp-cbtn end" onclick="rcDecline()" title="Send to AI">'+svg(ICON.phone)+'</button>'
-      +'<button class="rcp-cbtn ans" onclick="rcAnswer()" title="Answer">'+svg(ICON.phone)+'</button></div>'
+      +'<div class="rcp-actions"><button class="rcp-cbtn end" onclick="rcDecline()">'+svg(ICON.phone)+'</button>'
+      +'<button class="rcp-cbtn ans" onclick="rcAnswer()">'+svg(ICON.phone)+'</button></div>'
       +'<div style="font-size:11.5px;color:#CFF3EE;margin-top:10px">Answer · or send to Liftori AI</div></div>';
   } else if(rc.active){
     const c=rc.active;
@@ -682,11 +719,18 @@ function rcHtml(){
       +'<div class="nm">'+c.who+'</div><div class="rs">'+c.from+(c.reason?' · '+c.reason:'')+'</div>'
       +'<div class="tmr" id="rc-timer">0:00</div>'
       +'<div class="rcp-actions">'
-      +'<button class="rcp-cbtn '+(rc.muted?'on':'')+'" onclick="rcMute()" title="Mute">'+svg(ICON.mic)+'</button>'
-      +'<button class="rcp-cbtn '+(rc.hold?'on':'')+'" onclick="rcHold()" title="Hold">'+svg(ICON.clock)+'</button>'
-      +'<button class="rcp-cbtn" onclick="rcXfer()" title="Transfer">'+svg(ICON.users)+'</button>'
-      +'<button class="rcp-cbtn end" onclick="rcEnd(\'done\')" title="End">'+svg(ICON.phone)+'</button></div>'
+      +'<button class="rcp-cbtn '+(rc.muted?'on':'')+'" onclick="rcMute()">'+svg(ICON.mic)+'</button>'
+      +'<button class="rcp-cbtn '+(rc.hold?'on':'')+'" onclick="rcHold()">'+svg(ICON.clock)+'</button>'
+      +'<button class="rcp-cbtn" onclick="rcXfer()">'+svg(ICON.users)+'</button>'
+      +'<button class="rcp-cbtn end" onclick="rcEnd(\'done\')">'+svg(ICON.phone)+'</button></div>'
       +'<div class="rcp-dispo"><button class="go" onclick="rcEnd(\'Booked\')">Booked</button><button onclick="rcEnd(\'Message\')">Take message</button><button onclick="rcEnd(\'Refill\')">Refill → provider</button></div></div>';
+    const mi=provider.patients.findIndex(p=>p.name===rc.active.who);
+    const who=mi>=0?rc.active.who:'';
+    top+='<div class="rcp-sub">During this call</div>';
+    if(mi>=0){ top+='<div class="rcp-item"><span class="av">'+provider.patients[mi].initials+'</span><div style="flex:1"><div class="nm">'+rc.active.who+'</div><div class="mt">Patient on file</div></div><button class="rcp-mini" onclick="rcSelPatient('+mi+')">Open chart</button></div>'; }
+    else { top+='<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.users,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+rc.active.who+'</div><div class="mt">Not on file</div></div><button class="rcp-mini" onclick="rcSecGo(\'patients\');rcAddToggle()">Add patient</button></div>'; }
+    top+='<input class="rcp-input" id="rc-cnote" placeholder="Quick note for this call…"><button class="rcp-mini" style="margin:0 0 10px" onclick="rcAddNote(\''+who+'\',\'rc-cnote\')">Save note</button>';
+    top+='<input class="rcp-input" id="rc-ctask" placeholder="Add a task…"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\''+who+'\',\'rc-ctask\')">Add task</button>';
   } else {
     const placeholder = rc.dial ? rc.dial : '<span class="ph">Enter a number</span>';
     const keys=[['1',''],['2','ABC'],['3','DEF'],['4','GHI'],['5','JKL'],['6','MNO'],['7','PQRS'],['8','TUV'],['9','WXYZ'],['*',''],['0','+'],['#','']];
@@ -696,30 +740,69 @@ function rcHtml(){
       +(rc.dial?'<div style="text-align:center;margin-top:8px"><button class="rcp-mini" style="margin:0" onclick="rcBack()">Delete</button></div>':'')
       +'</div>';
   }
-  // tabs
   const unheard=rc.vm.filter(v=>v.unheard).length;
   const seg='<div class="rcp-seg">'
     +'<button class="'+(rc.tab==='queue'?'on':'')+'" onclick="rcTab(\'queue\')">Queue<span class="badge">'+rc.queue.length+'</span></button>'
     +'<button class="'+(rc.tab==='vm'?'on':'')+'" onclick="rcTab(\'vm\')">Voicemail'+(unheard?'<span class="badge">'+unheard+'</span>':'')+'</button>'
     +'<button class="'+(rc.tab==='recent'?'on':'')+'" onclick="rcTab(\'recent\')">Recent</button></div>';
   let list='';
-  if(rc.tab==='queue'){
-    list = rc.queue.length ? rc.queue.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · waited '+c.waited+'</div></div><button class="rcp-pickup" onclick="rcPick('+i+')">'+svg(ICON.phone,'ic ic-sm')+'Pick up</button></div>').join('') : '<div class="rcp-empty">Queue is clear — nice work.</div>';
-  } else if(rc.tab==='vm'){
-    list = rc.vm.map((v,i)=>'<div class="rcp-item"><span class="rcp-ico'+(v.unheard?' new':'')+'">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+v.who+(v.unheard?' <span class="chip new" style="margin-left:4px">New</span>':'')+'</div><div class="mt">'+v.when+' · '+v.len+'</div></div><button class="rcp-mini" onclick="rcVm('+i+')">Call back</button></div>').join('');
-  } else {
-    list = rc.recent.map(r=>'<div class="rcp-item"><span class="rcp-ico">'+svg(r.dir==='in'?ICON.phone:ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+r.who+'</div><div class="mt">'+(r.dir==='in'?'Inbound':'Outbound')+' · '+r.res+' · '+r.dur+'</div></div><span class="mt">'+r.when+'</span></div>').join('');
-  }
-  return '<div class="rcp-wrap">'
-    +'<div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Reception</div>'
-    +'<div class="rcp-who"><span class="av">'+rc.agent.initials+'</span><select onchange="rcSetStatus(this.value)">'
-    +['available','break','off'].map(o=>'<option value="'+o+'"'+(rc.status===o?' selected':'')+'>'+({available:'Available',break:'On break',off:'Off'})[o]+'</option>').join('')
-    +'</select></div></div>'
-    +'<div class="rcp-cov">'+cov+'</div>'
-    +'<div class="rcp-body">'+top+seg+list
-    +(rc.active||rc.incoming?'':'<div style="text-align:center;margin-top:6px"><button class="rcp-mini" style="margin:0" onclick="rcSimIn()">Simulate incoming call</button></div>')
-    +'</div><div class="toast" id="toast"></div></div>';
+  if(rc.tab==='queue'){ list = rc.queue.length ? rc.queue.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · waited '+c.waited+'</div></div><button class="rcp-pickup" onclick="rcPick('+i+')">'+svg(ICON.phone,'ic ic-sm')+'Pick up</button></div>').join('') : '<div class="rcp-empty">Queue is clear — nice work.</div>'; }
+  else if(rc.tab==='vm'){ list = rc.vm.map((v,i)=>'<div class="rcp-item"><span class="rcp-ico'+(v.unheard?' new':'')+'">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+v.who+(v.unheard?' <span class="chip new" style="margin-left:4px">New</span>':'')+'</div><div class="mt">'+v.when+' · '+v.len+'</div></div><button class="rcp-mini" onclick="rcVm('+i+')">Call back</button></div>').join(''); }
+  else { list = rc.recent.map(r=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+r.who+'</div><div class="mt">'+(r.dir==='in'?'Inbound':'Outbound')+' · '+r.res+' · '+r.dur+'</div></div><span class="mt">'+r.when+'</span></div>').join(''); }
+  return top+seg+list+(rc.active||rc.incoming?'':'<div style="text-align:center;margin-top:6px"><button class="rcp-mini" style="margin:0" onclick="rcSimIn()">Simulate incoming call</button></div>');
 }
+function rcSchedHtml(){
+  return '<div class="rcp-sub" style="margin-top:4px">Today · '+provider.schedule.length+' visits</div>'
+    +'<div class="card" style="padding:6px 14px"><div class="sch">'+schHtml()+'</div></div>'
+    +'<div class="rcp-sub">Book an appointment</div>'
+    +'<input class="rcp-input" id="rc-bk-name" placeholder="Patient name">'
+    +'<input class="rcp-input" id="rc-bk-prov" placeholder="Provider (e.g. Dr. Liu)">'
+    +'<input class="rcp-input" id="rc-bk-time" placeholder="Day & time (e.g. Thu 3:00)">'
+    +'<button class="rcp-callbtn" style="background:var(--teal);height:46px" onclick="rcBook()">'+svg(ICON.cal,'ic ic-sm')+'Book it</button>';
+}
+function rcPatientRows(q){
+  const list=provider.patients.map((p,idx)=>({p:p,idx:idx})).filter(o=> !q || (o.p.name+' '+(o.p.phone||'')).toLowerCase().includes(q));
+  if(!list.length) return '<div class="rcp-empty">No patients match.</div>';
+  return list.map(o=>'<div class="rcp-item" style="cursor:pointer" onclick="rcSelPatient('+o.idx+')"><span class="av">'+o.p.initials+'</span><div style="flex:1"><div class="nm">'+o.p.name+'</div><div class="mt">'+(o.p.phone||o.p.mt||'')+'</div></div><svg class="ic ic-sm" style="color:var(--faint)" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>').join('');
+}
+function rcPatientsHtml(){
+  return '<div style="display:flex;gap:8px;margin:4px 0 10px"><input class="rcp-input" id="rc-psearch" placeholder="Search patients…" oninput="rcFilter()" style="margin:0">'
+    +'<button class="rcp-mini" style="margin:0;white-space:nowrap" onclick="rcAddToggle()">'+(rc.addP?'Close':'+ Add')+'</button></div>'
+    +(rc.addP?('<div class="card" style="padding:14px;margin-bottom:12px"><div class="rcp-sub" style="margin-top:0">New patient</div>'
+       +'<input class="rcp-input" id="rc-fn" placeholder="First name"><input class="rcp-input" id="rc-ln" placeholder="Last name"><input class="rcp-input" id="rc-ph" placeholder="Phone"><input class="rcp-input" id="rc-pay" placeholder="Insurance">'
+       +'<button class="rcp-callbtn" style="background:var(--teal);height:44px;margin-top:2px" onclick="rcAddPatient()">Save patient</button></div>'):'')
+    +'<div id="rc-presults">'+rcPatientRows('')+'</div>';
+}
+function rcPatientDetailHtml(i){
+  const p=provider.patients[i]; if(!p) return rcPatientsHtml();
+  const tks=rc.tasks.filter(t=>t.who===p.name); const nts=rc.notes.filter(n=>n.who===p.name);
+  return '<button class="rcp-mini" style="margin:2px 0 12px" onclick="rcBackPatients()">‹ All patients</button>'
+    +'<div class="rcp-item"><span class="av" style="width:42px;height:42px">'+p.initials+'</span><div style="flex:1"><div class="nm" style="font-size:15px">'+p.name+'</div><div class="mt">'+(p.phone||'')+(p.payer?' · '+p.payer:'')+'</div></div></div>'
+    +'<div class="rcp-sub">Tasks</div>'+(tks.length?tks.map(taskRow).join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No tasks yet.</div>')
+    +'<input class="rcp-input" id="rc-ptask" placeholder="Add task for '+p.name.split(' ')[0]+'…" style="margin-top:8px"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\''+p.name+'\',\'rc-ptask\')">Add task</button>'
+    +'<div class="rcp-sub">Notes</div>'+(nts.length?nts.map(noteRow).join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No notes yet.</div>')
+    +'<input class="rcp-input" id="rc-pnote" placeholder="Add a note…" style="margin-top:8px"><button class="rcp-mini" style="margin:0" onclick="rcAddNote(\''+p.name+'\',\'rc-pnote\')">Save note</button>';
+}
+function rcTasksHtml(){
+  return '<div class="rcp-sub" style="margin-top:4px">Front desk tasks</div>'
+    +'<input class="rcp-input" id="rc-task" placeholder="Add a task…"><button class="rcp-mini" style="margin:0 0 12px" onclick="rcAddTask(\'\',\'rc-task\')">Add task</button>'
+    +(rc.tasks.length?rc.tasks.map(taskRow).join(''):'<div class="rcp-empty">No tasks.</div>');
+}
+function rcNotesHtml(){
+  return '<div class="rcp-sub" style="margin-top:4px">Notes</div>'
+    +'<input class="rcp-input" id="rc-note" placeholder="Add a note…"><button class="rcp-mini" style="margin:0 0 12px" onclick="rcAddNote(\'\',\'rc-note\')">Save note</button>'
+    +(rc.notes.length?rc.notes.map(noteRow).join(''):'<div class="rcp-empty">No notes.</div>');
+}
+function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
+function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
+function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
+function rcAddPatient(){ const fn=rcVal('rc-fn'),ln=rcVal('rc-ln'); if(!fn||!ln){ toast('Enter first and last name'); return; } provider.patients.push({initials:(fn[0]+ln[0]).toUpperCase(),name:fn+' '+ln,mt:'New patient',status:'Active',phone:rcVal('rc-ph'),payer:rcVal('rc-pay')||'—',provider:'—',next:'',since:'now',meds:[]}); rc.addP=false; rcRender(); toast(fn+' '+ln+' added'); }
+function rcSelPatient(i){ rc.selP=i; rc.sec='patients'; rcRender(); }
+function rcBackPatients(){ rc.selP=null; rcRender(); }
+function rcAddNote(who,id){ const v=rcVal(id); if(!v) return; rc.notes.unshift({id:Date.now(),text:v,who:who||'',at:'now'}); rcRender(); toast('Note saved'); }
+function rcAddTask(who,id){ const v=rcVal(id); if(!v) return; rc.tasks.unshift({id:Date.now(),t:v,who:who||'',done:false}); rcRender(); toast('Task added'); }
+function rcToggleTask(id){ const t=rc.tasks.find(x=>x.id===id); if(t)t.done=!t.done; rcRender(); }
+function rcBook(){ const nm=rcVal('rc-bk-name'),pv=rcVal('rc-bk-prov'),tm=rcVal('rc-bk-time'); if(!nm||!tm){ toast('Need patient + time'); return; } const open=provider.schedule.find(r=>r.patient==='Open'); if(open){ open.time=tm; open.patient=nm; open.v=(pv||'Visit'); open.chip='new'; open.chipL='Booked at desk'; } else { provider.schedule.push({time:tm,patient:nm,v:(pv||'Visit'),chip:'new',chipL:'Booked at desk'}); } rc.sec='sched'; rcRender(); toast('Booked '+nm); }
 function rcRender(){ document.body.className='rcp'; document.body.innerHTML=rcHtml(); }
 function rcSetStatus(v){ rc.status=v; rcRender(); }
 function rcTab(t){ rc.tab=t; rcRender(); }
