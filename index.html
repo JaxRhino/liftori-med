@@ -674,7 +674,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false, callReason:'',
+  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null,
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -713,7 +713,7 @@ function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
   const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
-  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['outreach','Outreach'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['intake','Intake'],['outreach','Outreach'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
   if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
@@ -722,6 +722,7 @@ function rcHtml(){
   else if(rc.sec==='texts') body=rcTextsHtml();
   else if(rc.sec==='outreach') body=rcOutreachHtml();
   else if(rc.sec==='reports') body=rcReportsHtml();
+  else if(rc.sec==='intake') body=rcIntakeHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
@@ -783,7 +784,7 @@ function rcCallWorkspace(){
   }
   const reasons=['','Scheduling','Reschedule / cancel','Refill','Billing / balance','Results / callback','Insurance','New patient','Other'];
   h+='<div class="rcp-sub">Call reason</div><select class="rcp-input" onchange="rcSetReason(this.value)">'+reasons.map(r=>'<option value="'+r+'"'+(rc.callReason===r?' selected':'')+'>'+(r||'Select a reason…')+'</option>').join('')+'</select>';
-  h+='<div class="rcp-sub">Quick actions</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="rcp-mini" onclick="rcSecGo(\'sched\')">Schedule</button><button class="rcp-mini" onclick="rcText(\''+who+'\')">Send text</button><button class="rcp-mini" onclick="rcRefill(\''+who+'\')">Refill request</button><button class="rcp-mini" onclick="rcEscalate()">Transfer to nurse</button><button class="rcp-mini" onclick="rcVideoLink(\''+who+'\')">Video link</button></div>'+(rc.lastVideoLink?'<div class="rcp-item" style="margin-top:8px"><span class="rcp-ico new">'+svg(ICON.video,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">Video link sent</div><div class="mt" style="word-break:break-all">'+rc.lastVideoLink+'</div></div></div>':'');
+  h+='<div class="rcp-sub">Quick actions</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="rcp-mini" onclick="rcSecGo(\'sched\')">Schedule</button><button class="rcp-mini" onclick="rcText(\''+who+'\')">Send text</button><button class="rcp-mini" onclick="rcRefill(\''+who+'\')">Refill request</button><button class="rcp-mini" onclick="rcEscalate()">Transfer to nurse</button><button class="rcp-mini" onclick="rcVideoLink(\''+who+'\')">Video link</button><button class="rcp-mini" onclick="rcSendIntake(\''+who+'\')">Send intake</button></div>'+(rc.lastVideoLink?'<div class="rcp-item" style="margin-top:8px"><span class="rcp-ico new">'+svg(ICON.video,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">Video link sent</div><div class="mt" style="word-break:break-all">'+rc.lastVideoLink+'</div></div></div>':'');
   h+='<div class="rcp-sub">Call note</div><textarea class="rcp-input" id="rc-cnote" rows="2" style="resize:vertical;min-height:54px" placeholder="Note for this call…"></textarea><button class="rcp-mini" style="margin:0 0 4px" onclick="rcAddNote(\''+who+'\',\'rc-cnote\')">Save note</button>';
   h+='<div style="display:flex;gap:8px;margin-top:6px"><input class="rcp-input" id="rc-ctask" style="margin:0" placeholder="Add a task…"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\''+who+'\',\'rc-ctask\')">Add</button></div>';
   if(p){ const tks=rc.tasks.filter(t=>t.who===p.name); if(tks.length){ h+='<div class="rcp-sub">Open tasks</div>'+tks.map(taskRow).join(''); } }
@@ -936,7 +937,7 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
 async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob'); if(r.data){ r.data.forEach(p=>{ const nm=(p.first_name||'')+' '+(p.last_name||''); if(!provider.patients.some(x=>x.name===nm)){ provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
@@ -957,6 +958,7 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_sms_messages'},rcSoftReload)
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_callbacks'},rcSoftReload)
   .on('postgres_changes',{event:'*',schema:'public',table:'patients'},()=>{ rcMergePatients().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'intake_submissions'},()=>{ rcLoadIntakes().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
@@ -1036,6 +1038,40 @@ function vzAttach(){ const l=document.getElementById('vz-local'); if(l&&vz.strea
 function vzMute(){ if(vz.stream){ vz.muted=!vz.muted; vz.stream.getAudioTracks().forEach(t=>t.enabled=!vz.muted); } vzRender(); setTimeout(vzAttach,60); }
 function vzCam(){ if(vz.stream){ vz.camoff=!vz.camoff; vz.stream.getVideoTracks().forEach(t=>t.enabled=!vz.camoff); } vzRender(); setTimeout(vzAttach,60); }
 function vzLeave(){ try{ vzSend({kind:'bye',from:vz.clientId}); }catch(e){} Object.keys(vz.peers).forEach(k=>{ try{ vz.peers[k].close(); }catch(e){} }); vz.peers={}; if(vz.channel&&vz.sb){ try{ vz.sb.removeChannel(vz.channel); }catch(e){} } if(vz.stream) vz.stream.getTracks().forEach(t=>t.stop()); vz.stream=null; vz.remoteStream=null; vz.connected=false; vz.joined=false; vzRender(); }
+async function rcSendIntake(who){
+  let token=Math.random().toString(36).slice(2,11);
+  if(rc.live&&rc.practiceId){ try{ const r=await sbc.from('intake_submissions').insert({practice_id:rc.practiceId,patient_name:who||null,status:'sent'}).select('token').single(); if(r.data&&r.data.token) token=r.data.token; }catch(e){} }
+  const link=location.origin+location.pathname+'?view=intake&token='+token;
+  if(who){ let i=rc.threads.findIndex(t=>t.who===who); if(i<0){ rc.threads.unshift({who:who,unread:0,msgs:[]}); i=0; } const body='Please complete your intake before your visit: '+link; rc.threads[i].msgs.push({me:true,t:body,at:'now'}); if(rc.live&&rc.threads[i].id&&rc.practiceId){ try{ sbc.from('cc_sms_messages').insert({thread_id:rc.threads[i].id,practice_id:rc.practiceId,direction:'out',body:body}); }catch(e){} } }
+  try{ navigator.clipboard.writeText(link); }catch(e){}
+  rcRender(); toast('Intake link created'+(who?(' & texted to '+who):'')+' (copied)');
+}
+async function rcLoadIntakes(){ try{ const r=await sbc.from('intake_submissions').select('*').order('created_at',{ascending:false}); if(r.data) rc.intakes=r.data.map(i=>({id:i.id,name:i.patient_name||'Patient',status:i.status,data:i.data})); }catch(e){} }
+function rcIntakeOpen(id){ rc.intakeView=id; rcRender(); }
+function rcIntakeBack(){ rc.intakeView=null; rcRender(); }
+function rcIntakeHtml(){
+  if(rc.intakeView){ const it=rc.intakes.find(x=>x.id===rc.intakeView); if(!it){ rc.intakeView=null; return rcIntakeHtml(); } const d=it.data||{}; const row=(l,v)=>'<div class="rcp-item" style="align-items:flex-start"><div style="flex:1"><div class="mt">'+l+'</div><div class="nm" style="font-weight:400;font-size:13px">'+(v||'—')+'</div></div></div>';
+    return '<div class="rcp-narrow"><button class="rcp-mini" style="margin:2px 0 12px" onclick="rcIntakeBack()">‹ All intakes</button><div class="card"><div class="ct">'+it.name+' · intake '+(it.status==='completed'?'<span class="chip ok">Completed</span>':'<span class="chip" style="background:var(--warn-bg);color:var(--warn)">Sent</span>')+'</div>'+(it.status==='completed'?(row('Date of birth',d.dob)+row('Phone',d.phone)+row('Email',d.email)+row('Insurance',(d.payer||'')+(d.member?(' · '+d.member):''))+row('Reason for visit',d.reason)+row('Allergies',d.allergies)+row('Current medications',d.meds)+row('Conditions / history',d.history)):'<div class="rcp-empty">Patient has not completed this yet.</div>')+'</div></div>';
+  }
+  const list=rc.intakes.length?rc.intakes.map(it=>'<div class="rcp-item" style="cursor:pointer" onclick="rcIntakeOpen(\''+it.id+'\')"><span class="rcp-ico'+(it.status==='completed'?' new':'')+'">'+svg(ICON.doc,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+it.name+'</div><div class="mt">'+(it.status==='completed'?'Completed — ready to review':'Sent — awaiting patient')+'</div></div>'+(it.status==='completed'?'<span class="chip ok">Done</span>':'<span class="chip" style="background:var(--warn-bg);color:var(--warn)">Sent</span>')+'</div>').join(''):'<div class="rcp-empty">No intakes yet. Send one from a call or here.</div>';
+  return '<div class="rcp-narrow"><div class="rcp-sub" style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">Patient intake <button class="rcp-mini" style="margin:0" onclick="rcSendIntake(\'\')">New intake link</button></div>'+list+'</div>';
+}
+const ix={token:null,meta:null,done:false,sb:null};
+async function ixBoot(){ document.body.className='rcp'; ix.token=new URLSearchParams(location.search).get('token'); document.body.innerHTML='<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--muted)">Loading…</div>'; if(window.supabase){ try{ ix.sb=window.supabase.createClient(SB_URL,SB_KEY); const r=await ix.sb.rpc('get_intake_meta',{p_token:ix.token}); ix.meta=(r.data&&r.data[0])||null; }catch(e){} } ixRender(); }
+function ixRow(label,id,ph,type){ return '<label style="display:block;font-size:12px;color:var(--muted);margin:10px 0 4px">'+label+'</label><input class="rcp-input" id="'+id+'" placeholder="'+(ph||'')+'"'+(type?(' type="'+type+'"'):'')+' style="margin:0">'; }
+function ixRender(){ document.body.className='rcp'; let inner;
+  if(!ix.meta){ inner='<div class="rcp-empty">This intake link is invalid or has already been completed.</div>'; }
+  else if(ix.meta.status==='completed'||ix.done){ inner='<div style="text-align:center;padding:18px"><div class="rcp-bigav" style="background:var(--ok-bg);color:var(--ok);margin:0 auto">'+svg(ICON.check)+'</div><div style="font-size:18px;font-weight:600;margin-top:14px">All done — thank you!</div><div class="mt" style="margin-top:6px">Your intake is complete. See you at your visit.</div></div>'; }
+  else { inner='<div style="font-size:18px;font-weight:600;text-align:center">Welcome'+(ix.meta.patient_name?(', '+ix.meta.patient_name.split(' ')[0]):'')+'</div><div class="mt" style="text-align:center;margin-bottom:4px">A few minutes now saves time at your visit.</div>'
+    +'<div class="rcp-sub">Your info</div>'+ixRow('Full name','ix-name',ix.meta.patient_name||'')+ixRow('Date of birth','ix-dob','MM/DD/YYYY')+ixRow('Phone','ix-phone','(555) 555-5555')+ixRow('Email','ix-email','you@email.com','email')
+    +'<div class="rcp-sub">Insurance</div>'+ixRow('Insurance carrier','ix-payer','e.g. Florida Blue')+ixRow('Member ID','ix-member','')
+    +'<div class="rcp-sub">Your visit</div>'+ixRow('Reason for visit','ix-reason','What brings you in?')
+    +'<div class="rcp-sub">Medical history</div>'+ixRow('Allergies','ix-allergies','Medications, foods, etc.')+ixRow('Current medications','ix-meds','')+ixRow('Conditions / history','ix-history','Anything we should know')
+    +'<label style="display:flex;gap:8px;align-items:flex-start;margin:14px 0;font-size:12.5px;color:var(--muted)"><input type="checkbox" id="ix-consent" style="margin-top:3px">I consent to treatment and acknowledge the notice of privacy practices.</label>'
+    +'<button class="rcp-callbtn" style="background:var(--teal);height:48px" onclick="ixSubmit()">Submit intake</button>'; }
+  document.body.innerHTML='<div class="rcp-wrap" style="max-width:620px"><div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Intake</div></div><div class="rcp-body"><div class="card" style="padding:22px;text-align:left">'+inner+'</div></div><div class="toast" id="toast"></div></div>';
+}
+async function ixSubmit(){ const cb=document.getElementById('ix-consent'); if(!cb||!cb.checked){ toast('Please consent to continue'); return; } const data={name:rcVal('ix-name'),dob:rcVal('ix-dob'),phone:rcVal('ix-phone'),email:rcVal('ix-email'),payer:rcVal('ix-payer'),member:rcVal('ix-member'),reason:rcVal('ix-reason'),allergies:rcVal('ix-allergies'),meds:rcVal('ix-meds'),history:rcVal('ix-history')}; try{ if(ix.sb) await ix.sb.rpc('submit_intake',{p_token:ix.token,p_data:data}); }catch(e){} ix.done=true; ixRender(); }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
@@ -1063,7 +1099,7 @@ function rcXfer(){ toast('Transferring to triage nurse…'); }
 function rcEnd(res){ const c=rc.active; if(rc.live&&c&&c.id) sbUpd('cc_calls',c.id,{status:'completed',disposition:(res==='done'?'Ended':res)+(rc.callReason?' / '+rc.callReason:''),ended_at:new Date().toISOString(),duration_seconds:rc.secs}); rcStop(); rc.active=null; const reason=rc.callReason?(' · '+rc.callReason):''; if(c){ rc.recent.unshift({who:c.who,dir:c.out?'out':'in',res:(res==='done'?'Ended':res)+reason,when:'now',dur:fmtSecs(rc.secs)}); rc.recent=rc.recent.slice(0,8); } rc.callReason=''; rcRender(); if(res&&res!=='done') toast(res+' · '+(c?c.who:'')); }
 
 /* ---------------- init ---------------- */
-const _vw=new URLSearchParams(location.search).get('view'); if(_vw==='reception'){ rcBoot(); } else if(_vw==='visit'){ vzBoot(); } else { renderNav();renderMain();renderPtabs(); }
+const _vw=new URLSearchParams(location.search).get('view'); if(_vw==='reception'){ rcBoot(); } else if(_vw==='visit'){ vzBoot(); } else if(_vw==='intake'){ ixBoot(); } else { renderNav();renderMain();renderPtabs(); }
 </script>
 </body>
 </html>
