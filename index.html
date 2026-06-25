@@ -725,7 +725,7 @@ function rcHtml(){
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
-    +'<div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Reception</div>'
+    +'<div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Reception'+(rc.live?' <span style="font-size:10px;background:rgba(255,255,255,.15);color:#7FD7CC;padding:2px 7px;border-radius:999px;margin-left:6px;letter-spacing:.05em">LIVE</span>':'')+'</div>'
     +'<div class="rcp-who"><span class="av">'+rc.agent.initials+'</span><select onchange="rcSetStatus(this.value)">'
     +['available','break','off'].map(o=>'<option value="'+o+'"'+(rc.status===o?' selected':'')+'>'+({available:'Available',break:'On break',off:'Off'})[o]+'</option>').join('')
     +'</select></div></div>'
@@ -936,7 +936,8 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ await rcLoad(); rc.live=true; rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob'); if(r.data){ r.data.forEach(p=>{ const nm=(p.first_name||'')+' '+(p.last_name||''); if(!provider.patients.some(x=>x.name===nm)){ provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
     sbc.from('cc_settings').select('practice_id').limit(1),
@@ -955,6 +956,7 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_calls'},rcSoftReload)
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_sms_messages'},rcSoftReload)
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_callbacks'},rcSoftReload)
+  .on('postgres_changes',{event:'*',schema:'public',table:'patients'},()=>{ rcMergePatients().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
@@ -962,7 +964,7 @@ async function sbUpd(table,id,patch){ if(!sbc||!id) return; try{ await sbc.from(
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
-function rcAddPatient(){ const fn=rcVal('rc-fn'),ln=rcVal('rc-ln'); if(!fn||!ln){ toast('Enter first and last name'); return; } provider.patients.push({initials:(fn[0]+ln[0]).toUpperCase(),name:fn+' '+ln,mt:'New patient',status:'Active',phone:rcVal('rc-ph'),payer:rcVal('rc-pay')||'—',provider:'—',next:'',since:'now',meds:[]}); rc.addP=false; rcRender(); toast(fn+' '+ln+' added'); }
+function rcAddPatient(){ const fn=rcVal('rc-fn'),ln=rcVal('rc-ln'); if(!fn||!ln){ toast('Enter first and last name'); return; } provider.patients.push({initials:(fn[0]+ln[0]).toUpperCase(),name:fn+' '+ln,mt:'New patient',status:'Active',phone:rcVal('rc-ph'),payer:rcVal('rc-pay')||'—',provider:'—',next:'',since:'now',meds:[]}); if(rc.live&&rc.practiceId){ try{ sbc.from('patients').insert({practice_id:rc.practiceId,first_name:fn,last_name:ln,phone:rcVal('rc-ph'),insurance_payer:rcVal('rc-pay')||null}); }catch(e){} } rc.addP=false; rcRender(); toast(fn+' '+ln+' added'); }
 function rcSelPatient(i){ rc.selP=i; rc.sec='patients'; rcRender(); }
 function rcBackPatients(){ rc.selP=null; rcRender(); }
 function rcAddNote(who,id){ const v=rcVal(id); if(!v) return; rc.notes.unshift({id:Date.now(),text:v,who:who||'',at:'now'}); rcRender(); toast('Note saved'); }
@@ -970,7 +972,7 @@ function rcAddTask(who,id){ const v=rcVal(id); if(!v) return; rc.tasks.unshift({
 function rcToggleTask(id){ const t=rc.tasks.find(x=>x.id===id); if(t)t.done=!t.done; rcRender(); }
 function rcBook(){ const nm=rcVal('rc-bk-name'),pv=rcVal('rc-bk-prov'),tm=rcVal('rc-bk-time'); if(!nm||!tm){ toast('Need patient + time'); return; } const open=provider.schedule.find(r=>r.patient==='Open'); if(open){ open.time=tm; open.patient=nm; open.v=(pv||'Visit'); open.chip='new'; open.chipL='Booked at desk'; } else { provider.schedule.push({time:tm,patient:nm,v:(pv||'Visit'),chip:'new',chipL:'Booked at desk'}); } rc.sec='sched'; rcRender(); toast('Booked '+nm); }
 function rcRender(){ document.body.className='rcp'; document.body.innerHTML=rcHtml(); }
-function rcSetStatus(v){ rc.status=v; rcRender(); }
+function rcSetStatus(v){ rc.status=v; if(rc.live&&rc.userId){ const m={available:'available',break:'break',off:'offline'}; try{ sbc.from('cc_agents').update({status:m[v]||'offline',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcRender(); }
 function rcTab(t){ rc.tab=t; rcRender(); }
 function rcKey(d){ if(rc.dial.length<16) rc.dial+=d; rcRender(); }
 function rcBack(){ rc.dial=rc.dial.slice(0,-1); rcRender(); }
