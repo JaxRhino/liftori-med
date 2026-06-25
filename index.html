@@ -674,7 +674,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null,
+  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[],
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -846,14 +846,27 @@ function rcPatientsHtml(){
 }
 function rcPatientDetailHtml(i){
   const p=provider.patients[i]; if(!p) return '<div class="card"><div class="rcp-empty">Not found.</div></div>';
-  const tks=rc.tasks.filter(t=>t.who===p.name); const nts=rc.notes.filter(n=>n.who===p.name);
-  return '<div class="card"><div class="rcp-item" style="padding:0 0 12px"><span class="av" style="width:46px;height:46px">'+p.initials+'</span><div style="flex:1"><div class="nm" style="font-size:16px">'+p.name+'</div><div class="mt">'+(p.phone||'')+(p.payer?' · '+p.payer:'')+(p.provider&&p.provider!=='—'?' · '+p.provider:'')+'</div></div><button class="rcp-mini" onclick="rcBackPatients()">Close</button></div>'
-    +(p.meds&&p.meds.length?'<div class="mt" style="margin-bottom:4px"><b style="color:var(--ink)">Meds:</b> '+p.meds.join(', ')+'</div>':'')
-    +'<div class="rcp-sub">Tasks</div>'+(tks.length?tks.map(taskRow).join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No tasks yet.</div>')
+  const chips=(arr,cls)=>(arr&&arr.length)?arr.map(a=>'<span class="chip '+(cls||'in')+'" style="margin:0 6px 6px 0;display:inline-block">'+a+'</span>').join(''):'<span class="mt" style="font-size:12px;color:var(--faint)">None on file</span>';
+  const meds=(p.meds&&p.meds.length)?p.meds.map(m=>'<div class="rcp-item" style="padding:8px 10px"><span class="rcp-ico">'+svg(ICON.pill,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+m+'</div></div></div>').join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No medications on file.</div>';
+  const notes=(rc.clin||[]).filter(n=>p._id&&n.pid===p._id);
+  const notesHtml=notes.length?notes.map(n=>'<div class="rcp-item" style="align-items:flex-start"><span class="rcp-ico">'+svg(ICON.doc,'ic ic-sm')+'</span><div style="flex:1"><div class="nm" style="font-weight:400;font-size:12.5px;line-height:1.45">'+n.body+'</div><div class="mt">'+(n.author||'Staff')+' · '+(n.kind||'note')+'</div></div></div>').join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No clinical notes yet.</div>';
+  const tks=rc.tasks.filter(t=>t.who===p.name);
+  const intake=(rc.intakes||[]).find(x=>x.name===p.name&&x.status==='completed');
+  return '<div class="rcp-narrow"><button class="rcp-mini" style="margin:2px 0 12px" onclick="rcBackPatients()">‹ All patients</button>'
+    +'<div class="card"><div class="rcp-item" style="padding:0 0 10px"><span class="av" style="width:46px;height:46px">'+p.initials+'</span><div style="flex:1"><div class="nm" style="font-size:16px">'+p.name+'</div><div class="mt">'+(p.dob?'DOB '+p.dob+' · ':'')+(p.phone||'')+(p.payer&&p.payer!=='—'?' · '+p.payer:'')+'</div></div>'+(intake?'<span class="chip ok">Intake on file</span>':'')+'</div>'
+    +(intake?'<button class="rcp-mini" style="margin:0 0 8px" onclick="rcPullIntake('+i+')">Pull allergies &amp; meds from intake</button>':'')
+    +'<div class="rcp-sub">Allergies</div><div>'+chips(p.allergies,'rec')+'</div>'
+    +'<div class="rcp-sub">Problems</div><div>'+chips(p.conditions,'in')+'</div>'
+    +'<div class="rcp-sub">Medications</div>'+meds
+    +'<div class="rcp-sub">Clinical notes</div>'+notesHtml
+    +'<div style="display:flex;gap:8px;margin-top:8px"><input class="rcp-input" id="rc-clin" style="margin:0" placeholder="Add a clinical note…"><button class="rcp-mini" style="margin:0" onclick="rcAddClinNote('+i+')">Add</button></div>'
+    +'<div class="rcp-sub">Tasks</div>'+(tks.length?tks.map(taskRow).join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No tasks.</div>')
     +'<input class="rcp-input" id="rc-ptask" placeholder="Add task for '+p.name.split(' ')[0]+'…" style="margin-top:8px"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\''+p.name+'\',\'rc-ptask\')">Add task</button>'
-    +'<div class="rcp-sub">Notes</div>'+(nts.length?nts.map(noteRow).join(''):'<div class="mt" style="font-size:12px;color:var(--faint)">No notes yet.</div>')
-    +'<textarea class="rcp-input" id="rc-pnote" rows="2" placeholder="Add a note…" style="margin-top:8px;resize:vertical"></textarea><button class="rcp-mini" style="margin:0" onclick="rcAddNote(\''+p.name+'\',\'rc-pnote\')">Save note</button></div>';
+    +'</div></div>';
 }
+async function rcLoadClin(){ try{ const r=await sbc.from('clinical_notes').select('*').order('created_at',{ascending:false}); if(r.data) rc.clin=r.data.map(n=>({id:n.id,pid:n.patient_id,author:n.author,kind:n.kind,body:n.body,at:n.created_at})); }catch(e){} }
+function rcAddClinNote(i){ const p=provider.patients[i]; const v=rcVal('rc-clin'); if(!p||!v) return; rc.clin.unshift({id:Date.now(),pid:p._id,author:'Front desk',kind:'note',body:v}); if(rc.live&&rc.practiceId&&p._id){ try{ sbc.from('clinical_notes').insert({practice_id:rc.practiceId,patient_id:p._id,author:'Front desk',kind:'note',body:v}); }catch(e){} } rcRender(); toast('Note added to chart'); }
+function rcPullIntake(i){ const p=provider.patients[i]; if(!p) return; const it=(rc.intakes||[]).find(x=>x.name===p.name&&x.status==='completed'); if(!it||!it.data){ toast('No completed intake found'); return; } const d=it.data; const split=v=>(v||'').split(',').map(x=>x.trim()).filter(Boolean); if(d.allergies) p.allergies=Array.from(new Set((p.allergies||[]).concat(split(d.allergies)))); if(d.meds) p.meds=Array.from(new Set((p.meds||[]).concat(split(d.meds)))); const body='Intake reviewed. Reason: '+(d.reason||'—')+'. Allergies: '+(d.allergies||'none')+'. Meds: '+(d.meds||'none')+'.'; rc.clin.unshift({id:Date.now(),pid:p._id,author:'Front desk',kind:'intake',body:body}); if(rc.live&&rc.practiceId&&p._id){ try{ sbc.from('clinical_notes').insert({practice_id:rc.practiceId,patient_id:p._id,author:'Front desk',kind:'intake',body:body}); sbc.from('patients').update({allergies:p.allergies,medications:p.meds}).eq('id',p._id); }catch(e){} } rcRender(); toast('Pulled intake into the chart'); }
 function rcTasksHtml(){
   return '<div class="rcp-sub" style="margin-top:4px">Front desk tasks</div>'
     +'<div style="display:flex;gap:8px"><input class="rcp-input" id="rc-task" style="margin:0" placeholder="Add a task…"><button class="rcp-mini" style="margin:0" onclick="rcAddTask(\'\',\'rc-task\')">Add</button></div>'
@@ -937,8 +950,8 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
-async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob'); if(r.data){ r.data.forEach(p=>{ const nm=(p.first_name||'')+' '+(p.last_name||''); if(!provider.patients.some(x=>x.name===nm)){ provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],_id:p.id}); } }); } }catch(e){} }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob,allergies,conditions,medications'); if(r.data){ r.data.forEach(p=>{ const nm=((p.first_name||'')+' '+(p.last_name||'')).trim(); const loc=provider.patients.find(x=>x.name===nm); if(loc){ loc._id=p.id; if(p.allergies&&p.allergies.length) loc.allergies=p.allergies; if(p.conditions&&p.conditions.length) loc.conditions=p.conditions; if(p.medications&&p.medications.length) loc.meds=p.medications; if(!loc.dob&&p.dob) loc.dob=p.dob; if(!loc.phone&&p.phone) loc.phone=p.phone; if((!loc.payer||loc.payer==='—')&&p.insurance_payer) loc.payer=p.insurance_payer; } else { provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:p.medications||[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],allergies:p.allergies||[],conditions:p.conditions||[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
     sbc.from('cc_settings').select('practice_id').limit(1),
@@ -959,6 +972,7 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'cc_callbacks'},rcSoftReload)
   .on('postgres_changes',{event:'*',schema:'public',table:'patients'},()=>{ rcMergePatients().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'intake_submissions'},()=>{ rcLoadIntakes().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'clinical_notes'},()=>{ rcLoadClin().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
