@@ -674,7 +674,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[],
+  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[], claims:[], pauths:[], appealView:null,
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -713,7 +713,7 @@ function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
   const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
-  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['intake','Intake'],['outreach','Outreach'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['intake','Intake'],['outreach','Outreach'],['billing','Billing'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
   if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
@@ -723,6 +723,7 @@ function rcHtml(){
   else if(rc.sec==='outreach') body=rcOutreachHtml();
   else if(rc.sec==='reports') body=rcReportsHtml();
   else if(rc.sec==='intake') body=rcIntakeHtml();
+  else if(rc.sec==='billing') body=rcBillingHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
@@ -950,7 +951,7 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); await rcLoadBilling(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
 async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob,allergies,conditions,medications'); if(r.data){ r.data.forEach(p=>{ const nm=((p.first_name||'')+' '+(p.last_name||'')).trim(); const loc=provider.patients.find(x=>x.name===nm); if(loc){ loc._id=p.id; if(p.allergies&&p.allergies.length) loc.allergies=p.allergies; if(p.conditions&&p.conditions.length) loc.conditions=p.conditions; if(p.medications&&p.medications.length) loc.meds=p.medications; if(!loc.dob&&p.dob) loc.dob=p.dob; if(!loc.phone&&p.phone) loc.phone=p.phone; if((!loc.payer||loc.payer==='—')&&p.insurance_payer) loc.payer=p.insurance_payer; } else { provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:p.medications||[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],allergies:p.allergies||[],conditions:p.conditions||[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
@@ -973,6 +974,8 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'patients'},()=>{ rcMergePatients().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'intake_submissions'},()=>{ rcLoadIntakes().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'clinical_notes'},()=>{ rcLoadClin().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'claims'},()=>{ rcLoadBilling().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'prior_auths'},()=>{ rcLoadBilling().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
@@ -1086,6 +1089,24 @@ function ixRender(){ document.body.className='rcp'; let inner;
   document.body.innerHTML='<div class="rcp-wrap" style="max-width:620px"><div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Intake</div></div><div class="rcp-body"><div class="card" style="padding:22px;text-align:left">'+inner+'</div></div><div class="toast" id="toast"></div></div>';
 }
 async function ixSubmit(){ const cb=document.getElementById('ix-consent'); if(!cb||!cb.checked){ toast('Please consent to continue'); return; } const data={name:rcVal('ix-name'),dob:rcVal('ix-dob'),phone:rcVal('ix-phone'),email:rcVal('ix-email'),payer:rcVal('ix-payer'),member:rcVal('ix-member'),reason:rcVal('ix-reason'),allergies:rcVal('ix-allergies'),meds:rcVal('ix-meds'),history:rcVal('ix-history')}; try{ if(ix.sb) await ix.sb.rpc('submit_intake',{p_token:ix.token,p_data:data}); }catch(e){} ix.done=true; ixRender(); }
+function rcBillingHtml(){
+  const m=c=>'$'+Math.round((c||0)/100).toLocaleString();
+  if(rc.appealView){ const a=rc.appealView; return '<div class="rcp-narrow"><button class="rcp-mini" style="margin:2px 0 12px" onclick="rcBillBack()">‹ Denials</button><div class="card"><div class="ct">Appeal letter · '+a.name+' <span class="chip" style="background:var(--mint);color:var(--teal-600)">AI drafted</span></div><textarea class="rcp-input" id="rc-appeal" style="height:300px;resize:vertical;font-size:12.5px;line-height:1.5">'+a.text+'</textarea><div style="display:flex;gap:8px;margin-top:6px"><button class="rcp-callbtn" style="background:var(--teal);height:44px;max-width:200px;margin:0" onclick="rcSendAppeal()">Send appeal</button><button class="rcp-mini" style="margin:0" onclick="rcBillBack()">Cancel</button></div></div></div>'; }
+  const collected=rc.claims.filter(c=>c.status==='paid').reduce((s,c)=>s+c.charge,0);
+  const denied=rc.claims.filter(c=>c.status==='denied').reduce((s,c)=>s+c.charge,0);
+  const ar=rc.claims.filter(c=>c.status==='submitted').reduce((s,c)=>s+c.charge,0);
+  const recover=Math.round(denied*0.78);
+  const kp='<div class="rcp-kpis" style="grid-template-columns:repeat(4,1fr)"><div class="rcp-kpi"><div class="v">'+m(collected)+'</div><div class="l">Collected</div></div><div class="rcp-kpi"><div class="v">'+m(denied)+'</div><div class="l">Denied</div></div><div class="rcp-kpi"><div class="v">'+m(recover)+'</div><div class="l">Recoverable</div></div><div class="rcp-kpi"><div class="v">'+m(ar)+'</div><div class="l">In A/R</div></div></div>';
+  const denials=rc.claims.filter(c=>c.status==='denied'||c.status==='appealed');
+  const dHtml=denials.length?denials.map(c=>'<div class="rcp-item"><span class="rcp-ico" style="background:var(--alert-bg);color:var(--alert)">'+svg(ICON.alert,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.name+' · '+m(c.charge)+'</div><div class="mt">CPT '+c.code+' · '+c.payer+' · '+(c.reason||'')+'</div></div>'+(c.status==='appealed'?'<span class="chip ok">Appealed</span>':'<button class="rcp-mini" onclick="rcDraftAppeal(\''+c.id+'\')">Draft appeal</button>')+'</div>').join(''):'<div class="rcp-empty">No denials right now.</div>';
+  const pa=rc.pauths.length?rc.pauths.map(p=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.doc,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+p.name+' · '+p.service+'</div><div class="mt">'+p.payer+'</div></div>'+(p.status==='approved'?'<span class="chip ok">Approved</span>':(p.status==='denied'?'<span class="chip rec">Denied</span>':'<button class="rcp-mini" onclick="rcPaAction(\''+p.id+'\')">'+(p.status==='needed'?'Submit':'Mark approved')+'</button>'))+'</div>').join(''):'<div class="rcp-empty">No prior auths pending.</div>';
+  return '<div>'+kp+'<div class="rcp-grid2"><div class="card"><div class="ct">Denials worklist <span class="sm">'+denials.length+' open</span></div>'+dHtml+'<div class="mt" style="margin-top:8px;font-size:11.5px">Most denials are overturned on appeal — work them here.</div></div><div class="card"><div class="ct">Prior authorizations</div>'+pa+'</div></div></div>';
+}
+function rcBillBack(){ rc.appealView=null; rcRender(); }
+function rcDraftAppeal(id){ const c=rc.claims.find(x=>x.id===id); if(!c) return; const m=v=>'$'+Math.round((v||0)/100).toLocaleString(); const letter='To the Appeals Department, '+c.payer+':\n\nRE: Formal appeal of denied claim\nPatient: '+c.name+'\nService: CPT '+c.code+' — '+c.desc+'\nBilled amount: '+m(c.charge)+'\nDenial reason: '+(c.reason||'N/A')+'\n\nWe respectfully appeal the above denial. The service was medically necessary, appropriately documented, and rendered by a licensed provider consistent with the patient’s treatment plan. The stated denial reason is not supported by the clinical record on file, which is attached for your review.\n\nWe request a full review and reprocessing of this claim for payment. If additional documentation is required, please contact our billing office directly.\n\nSincerely,\nCoastal Behavioral Health — Billing'; rc.appealView={id:c.id,name:c.name,text:letter}; rcRender(); }
+function rcSendAppeal(){ const a=rc.appealView; if(!a) return; const c=rc.claims.find(x=>x.id===a.id); if(c) c.status='appealed'; if(rc.live){ try{ sbc.from('claims').update({status:'appealed'}).eq('id',a.id); }catch(e){} } rc.appealView=null; rcRender(); toast('Appeal sent — claim moved to Appealed'); }
+function rcPaAction(id){ const p=rc.pauths.find(x=>x.id===id); if(!p) return; p.status=(p.status==='needed'?'submitted':'approved'); if(rc.live){ try{ sbc.from('prior_auths').update({status:p.status}).eq('id',id); }catch(e){} } rcRender(); toast('Prior auth '+p.status); }
+async function rcLoadBilling(){ try{ const [c,p]=await Promise.all([sbc.from('claims').select('*').order('created_at',{ascending:false}), sbc.from('prior_auths').select('*').order('created_at',{ascending:false})]); if(c.data) rc.claims=c.data.map(x=>({id:x.id,name:x.patient_name,payer:x.payer,code:x.code,desc:x.description,charge:x.charge_cents,status:x.status,reason:x.denial_reason})); if(p.data) rc.pauths=p.data.map(x=>({id:x.id,name:x.patient_name,service:x.service,payer:x.payer,status:x.status})); }catch(e){} }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
