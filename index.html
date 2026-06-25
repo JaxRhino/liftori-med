@@ -693,7 +693,17 @@ const rc={
   waitlist:[
     {who:'Nina Patel',pref:'Any earlier this week · Dr. Liu'},
     {who:'Tomás Ruiz',pref:'Mornings · Dr. Patel'}
-  ]
+  ],
+  recall:[
+    {who:'Carmen Ruiz',reason:'Annual wellness due',last:'14 mo ago'},
+    {who:'Eli Brooks',reason:'Med review overdue',last:'5 mo ago'},
+    {who:'Tara Lin',reason:'Lapsed — no visit',last:'9 mo ago'}
+  ],
+  noshows:[
+    {who:'Jordan Avery',when:'No-show · today 11:00',reason:'New patient intake'},
+    {who:'Mike Dunn',when:'No-show · yesterday 2:30',reason:'Therapy'}
+  ],
+  reasons:[['Scheduling',38],['Refill',19],['Billing / balance',14],['Insurance',11],['Results',9],['Other',9]]
 };
 function rcInit(n){return (n||'?').split(' ').map(x=>x[0]).join('').slice(0,2);}
 function fmtSecs(x){const m=Math.floor(x/60),y=x%60;return m+':'+(y<10?'0':'')+y;}
@@ -702,13 +712,15 @@ function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
   const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
-  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['tasks','Tasks'],['notes','Notes']];
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['outreach','Outreach'],['reports','Reports'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
   if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
   else if(rc.sec==='sched') body=rcSchedHtml();
   else if(rc.sec==='patients') body=rcPatientsHtml();
   else if(rc.sec==='texts') body=rcTextsHtml();
+  else if(rc.sec==='outreach') body=rcOutreachHtml();
+  else if(rc.sec==='reports') body=rcReportsHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
@@ -871,6 +883,32 @@ function rcCallbacksHtml(){ if(rc.tab!=='queue'||!rc.callbacks.length) return ''
 function rcDoCallback(i){ const c=rc.callbacks[i]; if(!c) return; rc.callbacks.splice(i,1); rc.active={who:c.who,from:c.from,out:true,patient:provider.patients.some(p=>p.name===c.who),reason:'Callback · '+c.reason}; rc.sec='phone'; rcRender(); rcTick(); toast('Calling '+c.who+' back'); }
 function rcWaitlistHtml(){ if(!rc.waitlist.length) return ''; const openSlot=provider.schedule.find(r=>r.patient==='Open'); return '<div class="card" style="margin-top:16px"><div class="ct">Waitlist <span class="sm">'+rc.waitlist.length+' waiting'+(openSlot?' · open slot available':'')+'</span></div>'+rc.waitlist.map((w,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.clock,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+w.who+'</div><div class="mt">'+w.pref+'</div></div><button class="rcp-mini" onclick="rcWaitFill('+i+')"'+(openSlot?'':' disabled style="opacity:.5"')+'>Offer slot</button></div>').join('')+'</div>'; }
 function rcWaitFill(i){ const w=rc.waitlist[i]; if(!w) return; const open=provider.schedule.find(r=>r.patient==='Open'); if(!open){ toast('No open slot right now'); return; } open.patient=w.who; open.v='Waitlist fill'; open.chip='new'; open.chipL='Filled from waitlist'; open.flash=true; setTimeout(()=>{const o=provider.schedule.find(r=>r.flash);if(o)o.flash=false;},1700); rc.waitlist.splice(i,1); rcRender(); toast('Offered the open slot to '+w.who); }
+function rcOutreachHtml(){
+  const appts=provider.schedule.filter(r=>r.patient!=='Open');
+  return '<div class="rcp-narrow">'
+    +'<div class="rcp-sub" style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">Appointment reminders <button class="rcp-mini" style="margin:0" onclick="rcSendAllReminders()">Send all</button></div>'
+    +appts.map(a=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.cal,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+a.patient+'</div><div class="mt">'+a.time+' · '+a.v+'</div></div>'+(a.reminded?'<span class="chip ok">Reminded</span>':'<button class="rcp-mini" onclick="rcSendReminder('+provider.schedule.indexOf(a)+')">Remind</button>')+'</div>').join('')
+    +'<div class="rcp-sub">Recall — overdue for care</div>'+(rc.recall.length?rc.recall.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.refresh,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · '+c.last+'</div></div><button class="rcp-mini" onclick="rcSendRecall('+i+')">Send recall</button></div>').join(''):'<div class="rcp-empty">Everyone is current.</div>')
+    +'<div class="rcp-sub">No-show follow-up</div>'+(rc.noshows.length?rc.noshows.map((n,i)=>'<div class="rcp-item"><span class="rcp-ico" style="background:var(--warn-bg);color:var(--warn)">'+svg(ICON.alert,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+n.who+'</div><div class="mt">'+n.when+' · '+n.reason+'</div></div><button class="rcp-mini" onclick="rcRebook('+i+')">Rebook</button></div>').join(''):'<div class="rcp-empty">No missed visits.</div>')
+    +'</div>';
+}
+function rcSendReminder(idx){ const a=provider.schedule[idx]; if(a){ a.reminded=true; rcRender(); toast('Reminder sent to '+a.patient); } }
+function rcSendAllReminders(){ provider.schedule.forEach(a=>{ if(a.patient!=='Open') a.reminded=true; }); rcRender(); toast('Reminders sent to all of today’s patients'); }
+function rcSendRecall(i){ const c=rc.recall[i]; if(!c) return; rc.recall.splice(i,1); rcRender(); toast('Recall sent to '+c.who); }
+function rcRebook(i){ const n=rc.noshows[i]; if(!n) return; rc.noshows.splice(i,1); rcRender(); toast('Rebooking outreach sent to '+n.who); }
+function rcBar(label,pct){ return '<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>'+label+'</span><span style="color:var(--faint)">'+pct+'%</span></div><div style="height:8px;background:var(--panel-2);border-radius:6px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--teal)"></div></div></div>'; }
+function rcReportsHtml(){
+  const kp=[['0:14','Avg answer'],['2%','Abandonment'],['74%','First-call resolution'],['72%','Schedule conversion'],['9%','No-show rate'],['41','Calls today']];
+  return '<div class="rcp-kpis" style="grid-template-columns:repeat(3,1fr)">'+kp.map(x=>'<div class="rcp-kpi"><div class="v">'+x[0]+'</div><div class="l">'+x[1]+'</div></div>').join('')+'</div>'
+    +'<div class="rcp-grid2"><div class="card"><div class="ct">Calls by reason <span class="sm">today</span></div>'+rc.reasons.map(r=>rcBar(r[0],r[1])).join('')+'</div>'
+    +'<div class="card"><div class="ct">Today’s outcomes</div><div class="sch">'
+    +'<div class="row"><span class="who"><span class="n">Booked</span></span><span class="mt">17</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Messages taken</span></span><span class="mt">8</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Transferred to nurse</span></span><span class="mt">4</span></div>'
+    +'<div class="row"><span class="who"><span class="n">AI backup handled</span></span><span class="mt">9</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Abandoned</span></span><span class="mt">1</span></div>'
+    +'</div></div></div>';
+}
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
