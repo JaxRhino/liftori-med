@@ -674,7 +674,7 @@ const rc={
     {who:'Priya Shah',dir:'out',res:'Reminder',when:'8:40 AM',dur:'1:30'},
     {who:'Dana Reyes',dir:'in',res:'Message',when:'8:15 AM',dur:'2:05'}
   ],
-  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[], claims:[], pauths:[], appealView:null, refills:[], refs:[],
+  sec:'phone', selP:null, addP:false, callReason:'', intakes:[], intakeView:null, clin:[], claims:[], pauths:[], appealView:null, refills:[], refs:[], appts:[], providers:[], schDay:0, schProv:'all',
   tasks:[
     {id:1,t:'Call Greg P. back about his refill',who:'',done:false},
     {id:2,t:'Verify insurance for Jordan Avery',who:'',done:false},
@@ -823,15 +823,69 @@ function rcPhoneHtml(){
     +'</div>';
   return '<div class="rcp-grid2"><div>'+dial+'</div><div>'+rcQueuePanel()+'</div></div>';
 }
+const VTS=['Therapy','Med management','New patient intake','Follow-up','Telehealth check-in'];
+function rcVtCol(vt){ return ({'Therapy':'#11756E','Med management':'#BE9E54','New patient intake':'#2E7D6B','Follow-up':'#7d8a93','Telehealth check-in':'#11756E'})[vt]||'#7d8a93'; }
+function rcTime12(hh,mm){ var h=parseInt(hh,10); var ap=h<12?'AM':'PM'; var h12=h%12; if(!h12)h12=12; return h12+':'+mm+' '+ap; }
+function rcDayYmd(off){ var t=new Date(); t.setUTCDate(t.getUTCDate()+off); return t.toISOString().slice(0,10); }
+function rcDayLabel(off){ var ymd=rcDayYmd(off); var d=new Date(ymd+'T12:00:00Z'); var lab=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); var rel=off===0?'Today':(off===1?'Tomorrow':(off===-1?'Yesterday':'')); return rel?(rel+' · '+lab):lab; }
+function rcApptPill(st){ var m={booked:'<span class="chip in">Booked</span>',confirmed:'<span class="chip" style="background:var(--mint);color:var(--teal-600)">Confirmed</span>',checked_in:'<span class="chip" style="background:#f3e6c4;color:#7a5e1b">Arrived</span>',completed:'<span class="chip ok">Completed</span>',no_show:'<span class="chip rec">No-show</span>',cancelled:'<span class="chip" style="background:var(--panel-2);color:var(--faint)">Cancelled</span>'}; return m[st]||''; }
+function rcAbtn(id,st,l){ return '<button class="rcp-mini" style="margin:0" onclick="rcApptAction(\''+id+'\',\''+st+'\')">'+l+'</button>'; }
+function rcApptActions(a){ if(a.status==='booked') return '<div style="display:flex;gap:5px">'+rcAbtn(a.id,'confirmed','Confirm')+rcAbtn(a.id,'checked_in','Check in')+'</div><div style="display:flex;gap:5px;margin-top:5px">'+rcAbtn(a.id,'no_show','No-show')+rcAbtn(a.id,'cancelled','Cancel')+'</div>'; if(a.status==='confirmed') return '<div style="display:flex;gap:5px">'+rcAbtn(a.id,'checked_in','Check in')+rcAbtn(a.id,'no_show','No-show')+'</div>'; if(a.status==='checked_in') return rcAbtn(a.id,'completed','Complete visit'); return ''; }
+function rcChip(label,active,oc){ return '<button onclick="'+oc+'" style="padding:6px 12px;border-radius:999px;border:1px solid '+(active?'var(--teal)':'var(--line)')+';background:'+(active?'var(--teal)':'#fff')+';color:'+(active?'#fff':'var(--deep)')+';font-size:12px;cursor:pointer;white-space:nowrap">'+label+'</button>'; }
+function rcApptRow(a){ var clean=(a.name||'').replace(/\x27/g,''); return '<div class="rcp-item" style="align-items:flex-start;border-left:3px solid '+rcVtCol(a.vt)+';padding-left:11px;opacity:'+(a.status==='cancelled'?'.55':'1')+'">'
+  +'<div style="width:78px;flex-shrink:0"><div class="nm" style="font-size:13px">'+rcTime12(a.hh,a.mm)+'</div><div class="mt">'+a.dur+' min</div></div>'
+  +'<div style="flex:1;min-width:0"><div class="nm" style="cursor:pointer" onclick="rcSchOpenPatient(\''+clean+'\')">'+a.name+'</div><div class="mt">'+a.vt+' · '+a.provider+(a.mod==='telehealth'?' · Telehealth':'')+'</div></div>'
+  +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+rcApptPill(a.status)+rcApptActions(a)+'</div></div>'; }
+function rcOpenSlots(ymd){ if(rc.schProv==='all') return '<div class="mt" style="font-size:12px;color:var(--faint)">Pick a provider above to see open slots.</div>'; var occ=rc.appts.filter(function(a){return a.ymd===ymd&&a.providerId===rc.schProv&&a.status!=='cancelled';}).map(function(a){var s=parseInt(a.hh,10)*60+parseInt(a.mm,10);return {s:s,e:s+a.dur};}); var out=[]; for(var m=540;m<=990;m+=30){ var mm0=m; var free=!occ.some(function(o){return mm0<o.e&&mm0+30>o.s;}); if(free){ var hh=('0'+Math.floor(m/60)).slice(-2),mn=('0'+(m%60)).slice(-2); out.push([hh+':'+mn,rcTime12(hh,mn)]); } } if(!out.length) return '<div class="mt" style="font-size:12px;color:var(--faint)">Fully booked this day.</div>'; return '<div style="display:flex;gap:6px;flex-wrap:wrap">'+out.map(function(x){return '<button class="rcp-mini" style="margin:0" onclick="rcSchPick(\''+x[0]+'\')">'+x[1]+'</button>';}).join('')+'</div>'; }
 function rcSchedHtml(){
-  const left='<div class="card"><div class="ct">Today · '+provider.schedule.length+' visits</div><div class="sch">'+schHtml()+'</div></div>';
-  const right='<div class="card"><div class="ct">Book an appointment</div>'
+  var ymd=rcDayYmd(rc.schDay);
+  var day=rc.appts.filter(function(a){return a.ymd===ymd&&(rc.schProv==='all'||a.providerId===rc.schProv);}).sort(function(a,b){return (a.hh+a.mm).localeCompare(b.hh+b.mm);});
+  var active=day.filter(function(a){return a.status!=='cancelled';});
+  var booked=active.length;
+  var conf=active.filter(function(a){return a.status==='confirmed'||a.status==='checked_in'||a.status==='completed';}).length;
+  var arr=active.filter(function(a){return a.status==='checked_in';}).length;
+  var comp=active.filter(function(a){return a.status==='completed';}).length;
+  var ns=day.filter(function(a){return a.status==='no_show';}).length;
+  var provCount=rc.schProv==='all'?(rc.providers.length||2):1;
+  var util=Math.min(100,Math.round(active.reduce(function(s,a){return s+a.dur;},0)/(provCount*480)*100));
+  var nav='<div style="display:flex;align-items:center;gap:8px"><button class="rcp-mini" style="margin:0" onclick="rcSchNav(-1)">&lsaquo;</button><div class="nm" style="font-size:15px;min-width:168px;text-align:center">'+rcDayLabel(rc.schDay)+'</div><button class="rcp-mini" style="margin:0" onclick="rcSchNav(1)">&rsaquo;</button>'+(rc.schDay!==0?'<button class="rcp-mini" style="margin:0 0 0 4px" onclick="rcSchToday()">Today</button>':'')+'</div>';
+  var kpi='<div class="rcp-kpis" style="grid-template-columns:repeat(6,1fr);margin:12px 0 0"><div class="rcp-kpi"><div class="v">'+booked+'</div><div class="l">Booked</div></div><div class="rcp-kpi"><div class="v">'+conf+'</div><div class="l">Confirmed</div></div><div class="rcp-kpi"><div class="v">'+arr+'</div><div class="l">Arrived</div></div><div class="rcp-kpi"><div class="v">'+comp+'</div><div class="l">Completed</div></div><div class="rcp-kpi"><div class="v">'+ns+'</div><div class="l">No-show</div></div><div class="rcp-kpi"><div class="v">'+util+'%</div><div class="l">Utilization</div></div></div>';
+  var header='<div class="card">'+nav+kpi+'</div>';
+  var chips='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0">'+rcChip('All providers',rc.schProv==='all',"rcSchProv('all')")+rc.providers.map(function(p){return rcChip(p.name,rc.schProv===p.id,"rcSchProv('"+p.id+"')");}).join('')+'</div>';
+  var rows=day.length?day.map(rcApptRow).join(''):'<div class="rcp-empty">No appointments '+(rc.schDay===0?'today':'this day')+'. Book one on the right.</div>';
+  var agenda='<div class="card"><div class="ct">Schedule <span class="sm">'+booked+' booked'+(ns?' · '+ns+' no-show':'')+'</span></div>'+rows+'</div>';
+  var provOpts=rc.providers.map(function(p){return '<option value="'+p.id+'"'+(rc.schProv===p.id?' selected':'')+'>'+p.name+'</option>';}).join('');
+  var vtOpts=VTS.map(function(v){return '<option>'+v+'</option>';}).join('');
+  var timeOpts=''; for(var m=540;m<=990;m+=30){ var hh=('0'+Math.floor(m/60)).slice(-2),mn=('0'+(m%60)).slice(-2); timeOpts+='<option value="'+hh+':'+mn+'">'+rcTime12(hh,mn)+'</option>'; }
+  var book='<div class="card"><div class="ct">Book appointment <span class="sm">'+rcDayLabel(rc.schDay)+'</span></div>'
     +'<input class="rcp-input" id="rc-bk-name" placeholder="Patient name">'
-    +'<input class="rcp-input" id="rc-bk-prov" placeholder="Provider (e.g. Dr. Liu)">'
-    +'<input class="rcp-input" id="rc-bk-time" placeholder="Day & time (e.g. Thu 3:00)">'
-    +'<button class="rcp-callbtn" style="background:var(--teal);height:46px" onclick="rcBook()">'+svg(ICON.cal,'ic ic-sm')+'Book it</button></div>';
-  return '<div class="rcp-grid2"><div>'+left+'</div><div>'+right+'</div></div>'+rcWaitlistHtml();
+    +'<select class="rcp-input" id="rc-bk-prov">'+provOpts+'</select>'
+    +'<select class="rcp-input" id="rc-bk-vt">'+vtOpts+'</select>'
+    +'<div style="display:flex;gap:8px"><select class="rcp-input" id="rc-bk-time" style="margin:0">'+timeOpts+'</select><select class="rcp-input" id="rc-bk-dur" style="margin:0"><option value="30">30 min</option><option value="50">50 min</option><option value="60">60 min</option></select></div>'
+    +'<select class="rcp-input" id="rc-bk-mod"><option value="in_person">In person</option><option value="telehealth">Telehealth</option></select>'
+    +'<button class="rcp-callbtn" style="background:var(--teal);height:44px;margin-top:2px" onclick="rcBook()">'+svg(ICON.clock,'ic ic-sm')+'Book it</button>'
+    +'<div class="rcp-sub">Open slots</div>'+rcOpenSlots(ymd)+'</div>';
+  return header+chips+'<div class="rcp-grid2"><div>'+agenda+'</div><div>'+book+'</div></div>'+rcWaitlistHtml();
 }
+async function rcLoadProviders(){ try{ var r=await sbc.from('providers').select('id,full_name'); if(r.data&&r.data.length){ rc.providers=r.data.map(function(p){return {id:p.id,name:p.full_name};}); return; } }catch(e){} if(!rc.providers.length) rc.providers=[{id:'liu',name:'Dr. Liu'},{id:'patel',name:'Dr. Patel'}]; }
+function rcApptFallback(){ var y0=rcDayYmd(0),y1=rcDayYmd(1); return [
+  {id:'d1',name:'Aaron Klein',providerId:'liu',provider:'Dr. Liu',vt:'Therapy',ymd:y0,hh:'09',mm:'00',dur:50,mod:'in_person',status:'confirmed'},
+  {id:'d2',name:'Priya Shah',providerId:'patel',provider:'Dr. Patel',vt:'Med management',ymd:y0,hh:'10',mm:'00',dur:30,mod:'telehealth',status:'checked_in'},
+  {id:'d3',name:'Devon Wright',providerId:'liu',provider:'Dr. Liu',vt:'New patient intake',ymd:y0,hh:'10',mm:'30',dur:60,mod:'in_person',status:'booked'},
+  {id:'d4',name:'James Park',providerId:'liu',provider:'Dr. Liu',vt:'Therapy',ymd:y0,hh:'11',mm:'30',dur:50,mod:'in_person',status:'booked'},
+  {id:'d5',name:'Maria Gomez',providerId:'patel',provider:'Dr. Patel',vt:'New patient intake',ymd:y0,hh:'13',mm:'30',dur:60,mod:'in_person',status:'confirmed'},
+  {id:'d6',name:'Dana Reyes',providerId:'patel',provider:'Dr. Patel',vt:'Therapy',ymd:y0,hh:'15',mm:'00',dur:50,mod:'telehealth',status:'booked'},
+  {id:'d7',name:'Sofia Ramirez',providerId:'liu',provider:'Dr. Liu',vt:'Follow-up',ymd:y0,hh:'16',mm:'00',dur:30,mod:'in_person',status:'completed'},
+  {id:'d8',name:'Greg Patton',providerId:'patel',provider:'Dr. Patel',vt:'Med management',ymd:y1,hh:'09',mm:'00',dur:30,mod:'in_person',status:'booked'},
+  {id:'d9',name:'Nina Alvarez',providerId:'liu',provider:'Dr. Liu',vt:'Therapy',ymd:y1,hh:'11',mm:'00',dur:50,mod:'telehealth',status:'confirmed'}
+]; }
+async function rcLoadAppts(){ try{ var r=await sbc.from('appointments').select('*').order('starts_at',{ascending:true}); if(r.data&&r.data.length){ rc.appts=r.data.map(function(a){ var s=a.starts_at||''; var dur=a.ends_at?Math.round((new Date(a.ends_at)-new Date(a.starts_at))/60000):30; var prov=(rc.providers.find(function(p){return p.id===a.provider_id;})||{}).name||'Provider'; return {id:a.id,name:a.patient_name||'Patient',providerId:a.provider_id,provider:prov,vt:a.visit_type||'Visit',ymd:s.slice(0,10),hh:s.slice(11,13),mm:s.slice(14,16),dur:dur,mod:a.modality,status:a.status,source:a.source}; }); return; } }catch(e){} if(!rc.appts.length) rc.appts=rcApptFallback(); }
+function rcApptAction(id,st){ var a=rc.appts.find(function(x){return x.id===id;}); if(!a) return; a.status=st; var real=!(String(id).indexOf('tmp')===0||String(id).indexOf('d')===0); if(rc.live&&real){ try{ sbc.from('appointments').update({status:st}).eq('id',id); }catch(e){} } rcRender(); var lbl={confirmed:'Confirmed',checked_in:'Checked in',completed:'Visit completed',no_show:'Marked no-show',cancelled:'Cancelled'}[st]||st; toast(lbl+' · '+a.name); }
+function rcSchNav(d){ rc.schDay+=d; if(rc.schDay<-14)rc.schDay=-14; if(rc.schDay>60)rc.schDay=60; rcRender(); }
+function rcSchToday(){ rc.schDay=0; rcRender(); }
+function rcSchProv(p){ rc.schProv=p; rcRender(); }
+function rcSchPick(t){ var el=document.getElementById('rc-bk-time'); if(el) el.value=t; var ps=document.getElementById('rc-bk-prov'); if(ps&&rc.schProv!=='all') ps.value=rc.schProv; toast('Slot selected: '+rcTime12(t.slice(0,2),t.slice(3,5))); }
+function rcSchOpenPatient(name){ var idx=provider.patients.findIndex(function(p){return p.name===name||p.name.split(' ')[0]===(name||'').split(' ')[0];}); if(idx>=0){ rc.selP=idx; rc.sec='patients'; rcRender(); } else { toast('No chart yet for '+name); } }
 function rcPatientRows(q){
   const list=provider.patients.map((p,idx)=>({p:p,idx:idx})).filter(o=> !q || (o.p.name+' '+(o.p.phone||'')).toLowerCase().includes(q));
   if(!list.length) return '<div class="rcp-empty">No patients match.</div>';
@@ -953,7 +1007,7 @@ function rcDoLogin(){ rcAuth(rcVal('lg-email'),rcVal('lg-pass')); }
 function rcDemoLogin(){ rcAuth('demo@liftori-med.com','liftori-demo'); }
 async function rcAuth(email,pass){ const r=await sbc.auth.signInWithPassword({email:email,password:pass}); if(r.error){ const e=document.getElementById('lg-err'); if(e) e.textContent=r.error.message; return; } rcConnect(); }
 async function rcLogout(){ try{ await sbc.auth.signOut(); }catch(e){} rc.live=false; rcLoginScreen(); }
-async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); await rcLoadBilling(); await rcLoadMeds(); await rcLoadRefs(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
+async function rcConnect(){ try{ const u=await sbc.auth.getUser(); rc.userId=(u&&u.data&&u.data.user)?u.data.user.id:null; await rcLoad(); await rcMergePatients(); await rcLoadIntakes(); await rcLoadClin(); await rcLoadBilling(); await rcLoadMeds(); await rcLoadRefs(); await rcLoadProviders(); await rcLoadAppts(); rc.live=true; if(rc.userId){ try{ sbc.from('cc_agents').update({status:'available',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcSubscribe(); rcRender(); }catch(e){ rc.live=false; rcRender(); } }
 async function rcMergePatients(){ try{ const r=await sbc.from('patients').select('id,first_name,last_name,phone,insurance_payer,dob,allergies,conditions,medications'); if(r.data){ r.data.forEach(p=>{ const nm=((p.first_name||'')+' '+(p.last_name||'')).trim(); const loc=provider.patients.find(x=>x.name===nm); if(loc){ loc._id=p.id; if(p.allergies&&p.allergies.length) loc.allergies=p.allergies; if(p.conditions&&p.conditions.length) loc.conditions=p.conditions; if(p.medications&&p.medications.length) loc.meds=p.medications; if(!loc.dob&&p.dob) loc.dob=p.dob; if(!loc.phone&&p.phone) loc.phone=p.phone; if((!loc.payer||loc.payer==='—')&&p.insurance_payer) loc.payer=p.insurance_payer; } else { provider.patients.push({initials:((p.first_name&&p.first_name[0]||'')+(p.last_name&&p.last_name[0]||'')).toUpperCase(),name:nm,mt:'Patient',status:'Active',phone:p.phone||'',payer:p.insurance_payer||'—',provider:'—',next:'',since:'',meds:p.medications||[],dob:p.dob||'',balance:0,eligibility:'Needs check',alerts:[],allergies:p.allergies||[],conditions:p.conditions||[],_id:p.id}); } }); } }catch(e){} }
 async function rcLoad(){
   const [st, ca, vm, cb, th] = await Promise.all([
@@ -980,6 +1034,7 @@ function rcSubscribe(){ try{ sbc.channel('rclive')
   .on('postgres_changes',{event:'*',schema:'public',table:'prior_auths'},()=>{ rcLoadBilling().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'refill_requests'},()=>{ rcLoadMeds().then(rcRender); })
   .on('postgres_changes',{event:'*',schema:'public',table:'referrals'},()=>{ rcLoadRefs().then(rcRender); })
+  .on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>{ rcLoadAppts().then(rcRender); })
   .subscribe(); }catch(e){} }
 let _rcRT=null;
 function rcSoftReload(){ clearTimeout(_rcRT); _rcRT=setTimeout(async()=>{ try{ await rcLoad(); rcRender(); }catch(e){} },400); }
@@ -1143,7 +1198,7 @@ function rcBackPatients(){ rc.selP=null; rcRender(); }
 function rcAddNote(who,id){ const v=rcVal(id); if(!v) return; rc.notes.unshift({id:Date.now(),text:v,who:who||'',at:'now'}); rcRender(); toast('Note saved'); }
 function rcAddTask(who,id){ const v=rcVal(id); if(!v) return; rc.tasks.unshift({id:Date.now(),t:v,who:who||'',done:false}); rcRender(); toast('Task added'); }
 function rcToggleTask(id){ const t=rc.tasks.find(x=>x.id===id); if(t)t.done=!t.done; rcRender(); }
-function rcBook(){ const nm=rcVal('rc-bk-name'),pv=rcVal('rc-bk-prov'),tm=rcVal('rc-bk-time'); if(!nm||!tm){ toast('Need patient + time'); return; } const open=provider.schedule.find(r=>r.patient==='Open'); if(open){ open.time=tm; open.patient=nm; open.v=(pv||'Visit'); open.chip='new'; open.chipL='Booked at desk'; } else { provider.schedule.push({time:tm,patient:nm,v:(pv||'Visit'),chip:'new',chipL:'Booked at desk'}); } rc.sec='sched'; rcRender(); toast('Booked '+nm); }
+function rcBook(){ var nm=rcVal('rc-bk-name'); var pvEl=document.getElementById('rc-bk-prov'); var provId=pvEl?pvEl.value:''; var provName=(rc.providers.find(function(p){return p.id===provId;})||{}).name||'Provider'; var vt=rcVal('rc-bk-vt')||'Follow-up'; var tm=(document.getElementById('rc-bk-time')||{}).value||'09:00'; var dur=parseInt((document.getElementById('rc-bk-dur')||{}).value||'30',10); var mod=(document.getElementById('rc-bk-mod')||{}).value||'in_person'; if(!nm){ toast('Patient name required'); return; } var ymd=rcDayYmd(rc.schDay); var startIso=ymd+'T'+tm+':00+00:00'; var em=parseInt(tm.slice(0,2),10)*60+parseInt(tm.slice(3,5),10)+dur; var eh=('0'+Math.floor(em/60)).slice(-2),emm=('0'+(em%60)).slice(-2); var endIso=ymd+'T'+eh+':'+emm+':00+00:00'; rc.appts.push({id:'tmp'+Date.now(),name:nm,providerId:provId,provider:provName,vt:vt,ymd:ymd,hh:tm.slice(0,2),mm:tm.slice(3,5),dur:dur,mod:mod,status:'booked',source:'staff'}); if(rc.live&&rc.practiceId&&provId&&provId!=='liu'&&provId!=='patel'){ try{ sbc.from('appointments').insert({practice_id:rc.practiceId,patient_name:nm,provider_id:provId,visit_type:vt,starts_at:startIso,ends_at:endIso,modality:mod,status:'booked',source:'staff'}); }catch(e){} } rcRender(); toast('Booked '+nm+' · '+rcTime12(tm.slice(0,2),tm.slice(3,5))); }
 function rcRender(){ document.body.className='rcp'; document.body.innerHTML=rcHtml(); }
 function rcSetStatus(v){ rc.status=v; if(rc.live&&rc.userId){ const m={available:'available',break:'break',off:'offline'}; try{ sbc.from('cc_agents').update({status:m[v]||'offline',last_seen_at:new Date().toISOString()}).eq('user_id',rc.userId); }catch(e){} } rcRender(); }
 function rcTab(t){ rc.tab=t; rcRender(); }
