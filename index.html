@@ -312,30 +312,116 @@ function metric(l,ic,n,d,flat){return '<div class="metric"><div class="l">'+svg(
 function feedHtml(){return provider.feed.map(f=>'<div class="it"><span class="ico '+f.cls+'">'+svg(ICON[f.ic],'ic ic-sm')+'</span><div><div class="tx">'+f.tx+'</div><div class="meta">'+f.meta+'</div></div></div>').join('');}
 function schHtml(){return provider.schedule.map(r=>'<div class="row'+(r.flash?' flash':'')+'"><span class="tm">'+r.time+'</span><div class="who"><div class="n">'+r.patient+'</div><div class="v">'+r.v+'</div></div><span class="chip '+r.chip+'">'+r.chipL+'</span></div>').join('');}
 
+const cc = {
+  mode:'hours',
+  agents:[
+    {initials:'TM',name:'Tara Morgan',role:'Front desk lead',status:'available'},
+    {initials:'CV',name:'Carlos Vega',role:'Front desk',status:'available'},
+    {initials:'BD',name:'Brooke Diaz',role:'Scheduler',status:'break'}
+  ],
+  ringing:null, active:null,
+  ai:[
+    {tx:'<b>After-hours — booked</b> — Sofia R. for Mon 9:00 with Dr. Liu. Confirmed by text.',meta:'11:42 PM · Liftori AI',kind:'ok'},
+    {tx:'<b>Overflow — message taken</b> — Greg P. asked about a refill. Flagged for staff this morning.',meta:'8:12 AM · Liftori AI',kind:'flag'},
+    {tx:'<b>Urgent — escalated</b> — caller in crisis; shared 988 and paged Dr. Patel (on-call).',meta:'2:03 AM · Liftori AI',kind:'urgent'}
+  ],
+  metrics:{today:38, byStaff:29, byAI:9, callbacks:3},
+  callers:[
+    {from:'(904) 555-0148',who:'Maria Gomez',patient:true,reason:'Reschedule therapy'},
+    {from:'(904) 555-0204',who:'New caller',patient:false,reason:'New patient — anxiety'},
+    {from:'(904) 555-0231',who:'Devon Wright',patient:false,reason:'Insurance question'},
+    {from:'(904) 555-0188',who:'Priya Shah',patient:true,reason:'Refill request'}
+  ]
+};
+function ccAvail(){return cc.agents.filter(a=>a.status==='available');}
+function ccCoverage(){
+  if(cc.mode==='afterhours') return {cls:'tel',txt:'After hours · Liftori AI covering',live:false};
+  return {cls:'ok',txt:'Business hours · '+ccAvail().length+' staff answering · AI backup armed',live:true};
+}
+function ccInit(n){return (n||'?').split(' ').map(x=>x[0]).join('').slice(0,2);}
+function ccDot(st){const m={available:'var(--ok)',oncall:'var(--teal-bright)',break:'var(--warn)',off:'var(--faint)'};return '<span style="width:8px;height:8px;border-radius:50%;background:'+(m[st]||'var(--faint)')+';display:inline-block;flex:none"></span>';}
+function ccStatusL(st){return {available:'Available',oncall:'On a call',break:'On break',off:'Off'}[st]||st;}
+
 function viewFrontDesk(){
-  return '<div class="ph"><div><h1>AI Front Desk <span class="live"><span class="b"></span>Live · handling calls</span></h1><div class="sub">Answers every call and message, books, reschedules, and backfills no-shows.</div></div>'
-    +'<button class="btn" onclick="simulateCall()">'+svg(ICON.phone,'ic ic-sm')+'Simulate incoming call</button></div>'
-    +'<div class="metrics">'+metric('Calls handled','phone',provider.metrics.calls,'100% answered today')+metric('Booked by AI','cal',provider.metrics.booked,'+'+ (provider.metrics.booked-8) +' new patients')+metric('No-shows filled','refresh',provider.metrics.filled,'from waitlist')+metric('Avg pickup','clock','Instant','0 sec on hold',true)+'</div>'
-    +'<div class="cols"><div class="card feed"><div class="ct">Live activity <span class="sm">auto-updating</span></div><div id="feed">'+feedHtml()+'</div></div>'
-    +'<div class="card sch"><div class="ct">Today’s schedule <span class="sm">Wed, Jun 24</span></div><div id="sched">'+schHtml()+'</div></div></div>'
-    +'<div class="call"><div class="top"><span class="pc">'+svg(ICON.phone)+'</span><div><div class="t">Incoming call · (904) 555-0148</div><div class="s">New caller · not yet a patient</div></div></div>'
-    +'<div class="bub pt"><span class="who">Caller</span>Hi, I’m trying to find a therapist who takes my insurance and has something this week.</div>'
-    +'<div class="bub ai"><span class="who">Liftori-Med AI</span>I can help with that. We have Thursday at 3:00 or Friday at 11:00 with Dr. Liu, who’s in-network with your plan. Which works better?</div>'
-    +'<div class="bub pt"><span class="who">Caller</span>Thursday at 3 is perfect.</div>'
-    +'<div class="bub ai"><span class="who">Liftori-Med AI</span>Booked. I’ll text you the intake forms and a reminder. You’re all set, Maria.</div></div>';
+  const cov=ccCoverage();
+  let mainHtml='';
+  if(cc.ringing){
+    const c=cc.ringing;
+    mainHtml='<div class="card" style="border-color:var(--teal)"><div class="ct">Incoming call <span class="live"><span class="b"></span>Ringing '+c.agent+'</span></div>'
+      +'<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="av" style="width:42px;height:42px">'+(c.patient?ccInit(c.who):'?')+'</span><div><div style="font-size:14px;font-weight:600">'+c.who+'</div><div style="font-size:12px;color:var(--faint)">'+c.from+' · '+c.reason+'</div></div></div>'
+      +'<div style="display:flex;gap:8px"><button class="btn" onclick="ccAnswer()">'+svg(ICON.phone,'ic ic-sm')+'Answer</button><button class="btn ghost" onclick="ccToAI()">Send to AI</button></div></div>';
+  } else if(cc.active){
+    const c=cc.active;
+    mainHtml='<div class="card"><div class="ct">On a call · '+c.agent+' <span class="sm">'+c.from+'</span></div>'
+      +'<div style="display:flex;align-items:center;gap:12px;margin:4px 0 12px"><span class="av" style="width:42px;height:42px">'+(c.patient?ccInit(c.who):'?')+'</span><div><div style="font-size:14px;font-weight:600">'+c.who+(c.patient?' <span class="chip ok" style="margin-left:6px">Patient</span>':' <span class="chip new" style="margin-left:6px">New</span>')+'</div><div style="font-size:12px;color:var(--faint)">Reason: '+c.reason+'</div></div></div>'
+      +'<div class="navi" style="margin-top:0"><div class="nh">'+svg(ICON.spark,'ic ic-sm')+'AI assist for '+c.agent+'</div><div class="ans">Verify DOB, then offer Thu 3:00 or Fri 11:00 with Dr. Liu (in-network). For a refill, route to Dr. Patel. Pulling the chart now.</div></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'
+      +'<button class="btn" onclick="ccDispo(\'booked\')">'+svg(ICON.cal,'ic ic-sm')+'Booked</button>'
+      +'<button class="btn ghost" onclick="ccDispo(\'message\')">Take message</button>'
+      +'<button class="btn ghost" onclick="ccDispo(\'nurse\')">Transfer to nurse</button>'
+      +'<button class="btn ghost" onclick="ccDispo(\'done\')">End call</button></div></div>';
+  } else {
+    mainHtml='<div class="card"><div class="ct">Call queue <span class="sm">'+(cc.mode==='afterhours'?'AI is answering':'staff ready')+'</span></div>'
+      +(cc.mode==='afterhours'
+        ? '<div class="stub" style="padding:24px"><span class="si">'+svg(ICON.spark)+'</span><h3>After hours — Liftori AI is covering</h3><p>AI answers, books routine visits, takes messages, and escalates emergencies to your on-call provider. It all lands in your queue for the morning.</p></div>'
+        : '<div class="feed">'+cc.callers.slice(0,3).map(c=>'<div class="it"><span class="ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="tx"><b>'+c.who+'</b> · '+c.reason+'</div><div class="meta">'+c.from+'</div></div></div>').join('')+'</div><div style="font-size:12px;color:var(--faint);margin-top:10px">Staff answer first. If everyone is busy past 4 rings, AI picks up so nothing is missed.</div>')
+      +'</div>';
+  }
+  const aiCls={ok:'g',flag:'a',urgent:'a'};
+  const covStyle = cov.cls==='tel' ? 'color:var(--teal-600);background:var(--mint)' : '';
+  return '<div class="ph"><div><h1>Front Desk <span class="live" style="'+covStyle+'">'+(cov.live?'<span class="b"></span>':'')+cov.txt+'</span></h1><div class="sub">Your team answers. Liftori AI is the backup — overflow and after-hours — so no call is ever missed.</div></div>'
+    +'<div style="display:flex;gap:8px"><button class="btn" onclick="ccSim()">'+svg(ICON.phone,'ic ic-sm')+'Simulate call</button><button class="btn ghost" onclick="ccToggle()">'+(cc.mode==='hours'?'Switch to after-hours':'Back to business hours')+'</button></div></div>'
+    +'<div class="metrics">'+metric('Calls today','phone',cc.metrics.today,'across the practice')
+      +metric('Answered by staff','users',cc.metrics.byStaff,Math.round(cc.metrics.byStaff/cc.metrics.today*100)+'% by your team')
+      +metric('AI backup','spark',cc.metrics.byAI,'overflow + after-hours')
+      +metric('Missed','check','0','AI catches the rest',true)+'</div>'
+    +'<div class="cols"><div>'+mainHtml+'</div>'
+    +'<div><div class="card"><div class="ct">Front desk team</div><div class="feed">'
+      +cc.agents.map(a=>'<div class="it"><span class="av">'+a.initials+'</span><div style="flex:1"><div class="tx" style="font-weight:500">'+a.name+'</div><div class="meta">'+a.role+'</div></div><span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)">'+ccDot(a.status)+ccStatusL(a.status)+'</span></div>').join('')
+      +'<div class="it"><span class="av" style="background:var(--deep);color:#7FD7CC">AI</span><div style="flex:1"><div class="tx" style="font-weight:500">Liftori AI</div><div class="meta">Backup receptionist</div></div><span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--teal-600)">'+ccDot(cc.mode==='afterhours'?'oncall':'available')+(cc.mode==='afterhours'?'Covering':'Armed')+'</span></div>'
+      +'</div></div>'
+      +'<div class="card" style="margin-top:16px"><div class="ct">Callbacks &amp; voicemail <span class="sm">'+cc.metrics.callbacks+' due</span></div><div class="feed">'
+      +'<div class="it"><span class="ico">'+svg(ICON.refresh,'ic ic-sm')+'</span><div><div class="tx">Callback — Greg P. (refill)</div><div class="meta">left by AI · 8:12 AM</div></div></div>'
+      +'<div class="it"><span class="ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div><div class="tx">Voicemail — Helen K.</div><div class="meta">after-hours · 0:42</div></div></div></div></div>'
+      +'</div></div>'
+    +'<div class="card" style="margin-top:16px"><div class="ct">AI backup activity <span class="sm">when staff can\'t pick up</span></div><div class="feed">'
+      +cc.ai.map(a=>'<div class="it"><span class="ico '+(aiCls[a.kind]||'')+'">'+svg(a.kind==='urgent'?ICON.alert:(a.kind==='flag'?ICON.refresh:ICON.check),'ic ic-sm')+'</span><div><div class="tx">'+a.tx+'</div><div class="meta">'+a.meta+'</div></div></div>').join('')
+      +'</div></div>'
+    +'<div class="card" style="margin-top:16px"><div class="ct">Coverage rules</div><div class="sch">'
+      +'<div class="row"><span class="who"><span class="n">Business hours</span></span><span class="mt">Mon–Fri 8:00–5:00 · staff answer first</span></div>'
+      +'<div class="row"><span class="who"><span class="n">Overflow</span></span><span class="mt">AI picks up after 4 rings / all staff busy</span></div>'
+      +'<div class="row"><span class="who"><span class="n">After hours</span></span><span class="mt">AI books routine visits + takes messages</span></div>'
+      +'<div class="row"><span class="who"><span class="n">Escalation</span></span><span class="mt">Crisis keywords → 988 + page on-call provider</span></div>'
+      +'</div></div>';
 }
-function simulateCall(){
-  const names=['Sofia R.','Marcus T.','Elena V.','Devon W.','Nina P.'];
-  const nm=names[Math.floor(Math.random()*names.length)];
-  provider.metrics.calls++; provider.metrics.booked++;
-  provider.feed.unshift({ic:'check',cls:'g',tx:'<b>Booked new patient</b> — '+nm+' for intake. Insurance &amp; history captured.',meta:'just now · via phone'});
-  provider.feed=provider.feed.slice(0,5);
-  const open=provider.schedule.find(r=>r.patient==='Open');
-  if(open){open.patient=nm;open.v='New patient intake';open.chip='new';open.chipL='Booked by AI';open.flash=true;}
-  renderMain();
-  toast('AI answered and booked '+nm);
-  setTimeout(()=>{const o=provider.schedule.find(r=>r.flash);if(o)o.flash=false;},1700);
+function ccToggle(){ cc.mode = cc.mode==='hours'?'afterhours':'hours'; cc.ringing=null; cc.active=null; renderMain(); toast(cc.mode==='afterhours'?'After-hours — Liftori AI now covering':'Business hours — your staff are answering'); }
+function ccSim(){
+  const c={...cc.callers[Math.floor(Math.random()*cc.callers.length)]};
+  if(cc.mode==='afterhours'){ ccAiHandle(c,'after-hours'); return; }
+  const a=ccAvail()[0];
+  if(!a){ ccAiHandle(c,'overflow'); return; }
+  c.agent=a.name.split(' ')[0]; cc.ringing=c; renderMain(); toast('Incoming call ringing '+c.agent);
 }
+function ccAnswer(){ const c=cc.ringing; if(!c) return; const a=cc.agents.find(x=>x.name.split(' ')[0]===c.agent); if(a)a.status='oncall'; cc.active=c; cc.ringing=null; renderMain(); }
+function ccToAI(){ const c=cc.ringing; cc.ringing=null; if(c) ccAiHandle(c,'overflow'); }
+function ccDispo(kind){
+  const c=cc.active; if(!c) return;
+  const a=cc.agents.find(x=>x.name.split(' ')[0]===c.agent); if(a)a.status='available';
+  cc.active=null; cc.metrics.today++; cc.metrics.byStaff++;
+  if(kind==='booked'){ const open=provider.schedule.find(r=>r.patient==='Open'); if(open){open.patient=c.who; open.v='Booked by '+c.agent; open.chip='new'; open.chipL='Booked at front desk'; open.flash=true; setTimeout(()=>{const o=provider.schedule.find(r=>r.flash); if(o)o.flash=false;},1700);} toast(c.who+' booked'); }
+  else if(kind==='message'){ cc.metrics.callbacks++; toast('Message taken for '+c.who); }
+  else if(kind==='nurse'){ toast('Transferred '+c.who+' to the triage nurse'); }
+  else toast('Call ended'); renderMain();
+}
+function ccAiHandle(c,why){
+  cc.metrics.today++; cc.metrics.byAI++;
+  const txt=(why==='after-hours')
+    ? '<b>After-hours — handled</b> — '+c.who+': '+c.reason+'. Booked/relayed and confirmed by text.'
+    : '<b>Overflow — handled</b> — '+c.who+': '+c.reason+'. Staff were busy; AI caught it so it was not missed.';
+  cc.ai.unshift({tx:txt,meta:'just now · Liftori AI',kind:'ok'}); cc.ai=cc.ai.slice(0,6);
+  renderMain(); toast('Liftori AI handled '+c.who+' ('+why+')');
+}
+
 function viewDash(){
   return '<div class="ph"><div><h1>Dashboard</h1><div class="sub">Coastal Behavioral · today at a glance</div></div></div>'
     +'<div class="metrics">'+metric('Today’s visits','cal','14','3 telehealth')+metric('Calls handled','phone','47','100% answered')+metric('No-show rate','refresh','9%','down from 26%')+metric('Open balance','doc','$1,240','2 claims pending',true)+'</div>'
