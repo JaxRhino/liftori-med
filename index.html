@@ -261,11 +261,11 @@ const provider = {
     {time:'4:00',patient:'Open',v:'Held for same-day',chip:'in',chipL:'Available'}
   ],
   patients:[
-    {initials:'MG',name:'Maria Gomez',mt:'New patient · anxiety, sleep',status:'Active'},
-    {initials:'AK',name:'Aaron Klein',mt:'Therapy · biweekly',status:'Active'},
-    {initials:'PS',name:'Priya Shah',mt:'Med management',status:'Active'},
-    {initials:'JP',name:'James Park',mt:'Therapy · weekly',status:'Active'},
-    {initials:'DR',name:'Dana Reyes',mt:'Therapy · telehealth',status:'Active'}
+    {initials:'MG',name:'Maria Gomez',mt:'New patient · anxiety, sleep',status:'Active',phone:'(904) 555-0148',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 1:30 PM',since:'Jun 2026',meds:['Sertraline 50mg','Hydroxyzine 25mg']},
+    {initials:'AK',name:'Aaron Klein',mt:'Therapy · biweekly',status:'Active',phone:'(904) 555-0112',payer:'Aetna',provider:'Dr. Liu',next:'Today, 9:00 AM',since:'Jan 2026',meds:['Escitalopram 10mg']},
+    {initials:'PS',name:'Priya Shah',mt:'Med management',status:'Active',phone:'(904) 555-0177',payer:'Cigna',provider:'Dr. Patel',next:'Today, 10:00 AM',since:'Mar 2025',meds:['Bupropion XL 150mg']},
+    {initials:'JP',name:'James Park',mt:'Therapy · weekly',status:'Active',phone:'(904) 555-0190',payer:'UnitedHealthcare',provider:'Dr. Liu',next:'Today, 11:00 AM',since:'Nov 2025',meds:[]},
+    {initials:'DR',name:'Dana Reyes',mt:'Therapy · telehealth',status:'Active',phone:'(904) 555-0163',payer:'Florida Blue',provider:'Dr. Patel',next:'Today, 3:00 PM',since:'Aug 2025',meds:['Fluoxetine 20mg']}
   ]
 };
 const patient = {
@@ -297,13 +297,13 @@ function renderNav(){
   document.getElementById('pnav').innerHTML = PNAV.map(([ic,label])=>
     '<button class="'+(pSection===ic?'on':'')+'" onclick="goSection(\''+ic+'\')">'+svg(ICON[ic])+label+'</button>').join('');
 }
-function goSection(s){pSection=s;renderNav();renderMain();}
+function goSection(s){pSection=s;selectedPatient=null;renderNav();renderMain();}
 function renderMain(){
   const m=document.getElementById('pmain');
   if(pSection==='phone') m.innerHTML=viewFrontDesk();
   else if(pSection==='dash') m.innerHTML=viewDash();
   else if(pSection==='cal') m.innerHTML=viewSchedule();
-  else if(pSection==='users') m.innerHTML=viewPatients();
+  else if(pSection==='users') m.innerHTML=(selectedPatient!=null?viewPatientDetail():viewPatients());
   else if(pSection==='chat') m.innerHTML=viewMessages();
   else if(pSection==='video') m.innerHTML=viewTelehealth();
   else m.innerHTML=viewSettings();
@@ -346,9 +346,33 @@ function viewSchedule(){
   return '<div class="ph"><div><h1>Schedule</h1><div class="sub">Wednesday, June 24 · 2 providers</div></div><button class="btn ghost" onclick="goSection(\'phone\')">'+svg(ICON.phone,'ic ic-sm')+'Front desk</button></div>'
     +'<div class="card sch">'+schHtml()+'</div>';
 }
+let selectedPatient = null;
+function openPatient(i){ selectedPatient=i; renderMain(); document.getElementById('pmain').scrollTop=0; }
+function closePatient(){ selectedPatient=null; renderMain(); }
 function viewPatients(){
-  return '<div class="ph"><div><h1>Patients</h1><div class="sub">'+provider.patients.length+' active</div></div></div>'
-    +'<div class="list">'+provider.patients.map(p=>'<div class="lrow"><span class="av">'+p.initials+'</span><div style="flex:1"><div class="nm">'+p.name+'</div><div class="mt">'+p.mt+'</div></div><span class="chip ok">'+p.status+'</span></div>').join('')+'</div>';
+  return '<div class="ph"><div><h1>Patients</h1><div class="sub">'+provider.patients.length+' active · tap a patient to open the chart</div></div></div>'
+    +'<div class="list">'+provider.patients.map((p,i)=>'<div class="lrow" style="cursor:pointer" onclick="openPatient('+i+')"><span class="av">'+p.initials+'</span><div style="flex:1"><div class="nm">'+p.name+'</div><div class="mt">'+p.mt+'</div></div><span class="chip ok">'+p.status+'</span><svg class="ic ic-sm" style="color:var(--faint)" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>').join('')+'</div>';
+}
+function viewPatientDetail(){
+  const p=provider.patients[selectedPatient]; if(!p) return viewPatients();
+  const meds = p.meds.length ? p.meds.map(m=>'<div class="medrow" style="margin-top:8px"><span class="mi">'+svg(ICON.pill,'ic ic-sm')+'</span><div><div class="mn">'+m+'</div><div class="md">active prescription</div></div></div>').join('') : '<div class="mt" style="font-size:12.5px;color:var(--faint)">No active medications.</div>';
+  return '<div class="ph"><div><button class="btn ghost" onclick="closePatient()" style="margin-bottom:10px"><svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>All patients</button>'
+    +'<h1>'+p.name+'</h1><div class="sub">'+p.mt+' · patient since '+p.since+'</div></div>'
+    +'<button class="btn" onclick="goSection(\'cal\')"><svg class="ic ic-sm" viewBox="0 0 24 24">'+ICON.cal+'</svg>Schedule visit</button></div>'
+    +'<div class="metrics" style="grid-template-columns:repeat(4,1fr)">'
+    +metric('Next visit','clock',(p.next||'').split(',')[0]||'—',p.next||'none scheduled',true)
+    +metric('Provider','users',p.provider,'primary')
+    +metric('Insurance','doc',p.payer,'verified')
+    +metric('Status','check',p.status,'in good standing')+'</div>'
+    +'<div class="cols"><div class="card"><div class="ct">Contact &amp; coverage</div>'
+    +'<div class="sch"><div class="row"><span class="who"><span class="n">Phone</span></span><span class="mt">'+p.phone+'</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Insurance</span></span><span class="mt">'+p.payer+'</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Primary provider</span></span><span class="mt">'+p.provider+'</span></div>'
+    +'<div class="row"><span class="who"><span class="n">Patient since</span></span><span class="mt">'+p.since+'</span></div></div></div>'
+    +'<div class="card"><div class="ct">Medications</div>'+meds+'</div></div>'
+    +'<div class="card" style="margin-top:16px"><div class="ct">Recent activity</div>'
+    +'<div class="feed"><div class="it"><span class="ico g">'+svg(ICON.check,'ic ic-sm')+'</span><div><div class="tx">Appointment confirmed — '+(p.next||'upcoming')+'</div><div class="meta">via Liftori-Med</div></div></div>'
+    +'<div class="it"><span class="ico">'+svg(ICON.doc,'ic ic-sm')+'</span><div><div class="tx">Intake &amp; insurance on file</div><div class="meta">'+p.payer+'</div></div></div></div></div>';
 }
 function viewMessages(){
   return '<div class="ph"><div><h1>Messages</h1><div class="sub">Care-team inbox · AI triages the routine first</div></div></div>'
@@ -423,52 +447,4 @@ function scrFind(){
       +'</div>'+(patient.booking.slot!=null?'<button class="pbtn alt" onclick="confirmBooking()" style="margin-top:16px">Confirm '+patient.booking.label+'</button>':'<button class="pbtn ghost" style="margin-top:16px">Pick a time</button>');
   }
   if(findStep==='done'){
-    return '<div class="success"><div class="ring">'+svg(ICON.check)+'</div><h3>You’re booked</h3><p>'+patient.booking.label+' with Dr. Liu. We texted your intake forms and a reminder — and it’s already on the clinic’s schedule.</p>'
-      +'<button class="pbtn alt" onclick="goTab(\'home\')" style="margin-top:18px">Back to home</button></div>';
-  }
-}
-function pickProvider(){patient.booking.provider='Dr. Liu';findStep='slots';renderPbody();}
-function pickSlot(i,d,t){patient.booking.slot=i;patient.booking.label=d+', '+t;renderPbody();}
-function confirmBooking(){
-  findStep='done';
-  patient.next={title:'Therapy · Dr. Liu', when:patient.booking.label, has:true};
-  // reflect on provider schedule (two-sided)
-  const open=provider.schedule.find(r=>r.patient==='Open');
-  if(open){open.patient='Maria G.';open.v='Therapy · Dr. Liu';open.chip='new';open.chipL='Booked in app';}
-  provider.feed.unshift({ic:'check',cls:'g',tx:'<b>Patient self-booked</b> — Maria G. booked '+patient.booking.label+' with Dr. Liu in the app.',meta:'just now · patient app'});
-  provider.feed=provider.feed.slice(0,5);
-  provider.metrics.booked++;
-  renderMain();
-  renderPbody();
-  toast('Booked — and synced to the clinic');
-}
-function goVideo(){pTab='video';renderPtabs();renderPbody();}
-function scrVideo(){
-  return '<div class="vid" style="margin:-6px -18px 0;border-radius:0">'
-    +'<div class="bigav">RP</div><div class="vn">Dr. Renee Patel</div><div class="vs">Connected · secure</div>'
-    +'<div class="ptile">You</div>'
-    +'<div class="vctrl"><button class="vbtn">'+svg(ICON.mic)+'</button><button class="vbtn">'+svg(ICON.video)+'</button><button class="vbtn end" onclick="goTab(\'home\')">'+svg(ICON.phone)+'</button></div></div>';
-}
-function scrMessages(){
-  return '<div class="stitle">Messages</div>'
-    +'<div class="pcard" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="av2" style="width:34px;height:34px;font-size:12px">RP</span><div><div style="font-size:13px;font-weight:600">Dr. Patel’s office</div><div style="font-size:11px;color:var(--faint)">usually replies within an hour</div></div></div>'
-    +'<div class="msgthread" style="border:none;padding:0;min-height:auto;gap:8px">'
-    +'<div class="msg them">Hi Maria — your refill is ready at your pharmacy.</div>'
-    +'<div class="msg me">Thank you! Anything I need to do before Thursday?</div>'
-    +'<div class="msg them">Just the intake form in your app. Takes 2 minutes.</div></div>'
-    +'<button class="pbtn ghost" style="margin-top:14px">Write a message</button></div>';
-}
-function scrRecords(){
-  return '<div class="stitle">Records &amp; meds</div>'
-    +'<div class="plab" style="margin-top:14px">Medications</div>'
-    +patient.meds.map(m=>'<div class="medrow"><span class="mi">'+svg(ICON.pill,'ic ic-sm')+'</span><div><div class="mn">'+m.n+'</div><div class="md">'+m.d+'</div></div><div class="price"><b>'+m.price+'</b><span>'+m.sub+'</span></div></div>').join('')
-    +'<div class="plab" style="margin-top:18px">Recent visit</div>'
-    +'<div class="pcard"><div style="font-size:13px;font-weight:600">Med management · Dr. Patel</div><div style="font-size:11.5px;color:var(--faint);margin-top:2px">Jun 3, 2026 · telehealth</div>'
-    +'<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5">Summary, plan, and any new prescriptions appear here automatically after each visit — in plain language.</div></div>';
-}
-
-/* ---------------- init ---------------- */
-renderNav();renderMain();renderPtabs();
-</script>
-</body>
-</html>
+    return '<div class="success"><div class="ring">'+svg(ICON.check)+'</div><h3>You�
