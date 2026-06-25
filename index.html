@@ -682,6 +682,17 @@ const rc={
   notes:[
     {id:1,text:'Prefers afternoon telehealth slots.',who:'Maria Gomez',at:'9:10 AM'},
     {id:2,text:'Front desk: confirm fax line for Dr. Liu is back up.',who:'',at:'8:30 AM'}
+  ],
+  threadOpen:null,
+  threads:[
+    {who:'Maria Gomez',unread:0,msgs:[{me:false,t:'Can I move my Thursday appt?',at:'9:02'},{me:true,t:'Sure — Friday 11:00 or Monday 9:00?',at:'9:05'},{me:false,t:'Friday works, thank you!',at:'9:06'}]},
+    {who:'Devon Wright',unread:1,msgs:[{me:false,t:'Do you take UnitedHealthcare?',at:'8:40'}]},
+    {who:'Greg P.',unread:0,msgs:[{me:true,t:'Your refill is ready for pickup.',at:'8:12'}]}
+  ],
+  callbacks:[],
+  waitlist:[
+    {who:'Nina Patel',pref:'Any earlier this week · Dr. Liu'},
+    {who:'Tomás Ruiz',pref:'Mornings · Dr. Patel'}
   ]
 };
 function rcInit(n){return (n||'?').split(' ').map(x=>x[0]).join('').slice(0,2);}
@@ -691,12 +702,13 @@ function rcStop(){ clearInterval(rc.timer); rc.timer=null; }
 
 function rcHtml(){
   const cov = rc.status==='available' ? '<span class="b"></span>Business hours · you’re answering · AI backup armed' : (rc.status==='break' ? 'On break · calls route to AI / other staff' : 'Off · Liftori AI is covering your line');
-  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['tasks','Tasks'],['notes','Notes']];
+  const navs=[['phone','Phone'],['sched','Schedule'],['patients','Patients'],['texts','Texts'],['tasks','Tasks'],['notes','Notes']];
   const nav='<div class="rcp-nav">'+navs.map(n=>'<button class="'+(rc.sec===n[0]?'on':'')+'" onclick="rcSecGo(\''+n[0]+'\')">'+n[1]+'</button>').join('')+'</div>';
   let body='';
   if(rc.sec==='phone') body=rcKpis()+rcPhoneHtml();
   else if(rc.sec==='sched') body=rcSchedHtml();
   else if(rc.sec==='patients') body=rcPatientsHtml();
+  else if(rc.sec==='texts') body=rcTextsHtml();
   else if(rc.sec==='tasks') body='<div class="rcp-narrow">'+rcTasksHtml()+'</div>';
   else body='<div class="rcp-narrow">'+rcNotesHtml()+'</div>';
   return '<div class="rcp-wrap">'
@@ -717,10 +729,10 @@ function rcQueuePanel(){
     +'<button class="'+(rc.tab==='vm'?'on':'')+'" onclick="rcTab(\'vm\')">Voicemail'+(unheard?'<span class="badge">'+unheard+'</span>':'')+'</button>'
     +'<button class="'+(rc.tab==='recent'?'on':'')+'" onclick="rcTab(\'recent\')">Recent</button></div>';
   let list='';
-  if(rc.tab==='queue'){ list = rc.queue.length ? rc.queue.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · waited '+c.waited+'</div></div><button class="rcp-pickup" onclick="rcPick('+i+')">'+svg(ICON.phone,'ic ic-sm')+'Pick up</button></div>').join('') : '<div class="rcp-empty">Queue is clear — nice work.</div>'; }
+  if(rc.tab==='queue'){ list = rc.queue.length ? rc.queue.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · waited '+c.waited+'</div></div><button class="rcp-mini" style="margin:0 6px 0 0" onclick="rcCallback('+i+')">Callback</button><button class="rcp-pickup" onclick="rcPick('+i+')">'+svg(ICON.phone,'ic ic-sm')+'Pick up</button></div>').join('') : '<div class="rcp-empty">Queue is clear — nice work.</div>'; }
   else if(rc.tab==='vm'){ list = rc.vm.map((v,i)=>'<div class="rcp-item"><span class="rcp-ico'+(v.unheard?' new':'')+'">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+v.who+(v.unheard?' <span class="chip new" style="margin-left:4px">New</span>':'')+'</div><div class="mt">'+v.when+' · '+v.len+'</div></div><button class="rcp-mini" onclick="rcVm('+i+')">Call back</button></div>').join(''); }
   else { list = rc.recent.map(r=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.phone,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+r.who+'</div><div class="mt">'+(r.dir==='in'?'Inbound':'Outbound')+' · '+r.res+' · '+r.dur+'</div></div><span class="mt">'+r.when+'</span></div>').join(''); }
-  return '<div class="card">'+seg+list+(rc.active||rc.incoming?'':'<div style="text-align:center;margin-top:6px"><button class="rcp-mini" style="margin:0" onclick="rcSimIn()">Simulate incoming call</button></div>')+'</div>';
+  return '<div class="card">'+seg+list+rcCallbacksHtml()+(rc.active||rc.incoming?'':'<div style="text-align:center;margin-top:6px"><button class="rcp-mini" style="margin:0" onclick="rcSimIn()">Simulate incoming call</button></div>')+'</div>';
 }
 function rcCallCard(){
   const c=rc.active;
@@ -767,7 +779,7 @@ function rcCallWorkspace(){
 function rcVerifyId(){ if(rc.active){ rc.active.idVerified=true; rcRender(); toast('Identity verified'); } }
 function rcVerifyElig(){ if(rc.active){ rc.active.eligOk=true; const mi=provider.patients.findIndex(p=>p.name===rc.active.who); if(mi>=0) provider.patients[mi].eligibility='Active'; rcRender(); toast('Eligibility: active · $25 copay'); } }
 function rcCollect(i){ const p=provider.patients[i]; if(p){ const amt=p.balance; p.balance=0; p.alerts=(p.alerts||[]).filter(a=>a.indexOf('Balance')<0); rcRender(); toast('Collected $'+amt); } }
-function rcText(who){ rcRender(); toast(who?('Text sent to '+who):'Text sent'); }
+function rcText(who){ if(who){ let i=rc.threads.findIndex(t=>t.who===who); if(i<0){ rc.threads.unshift({who:who,unread:0,msgs:[]}); i=0; } rc.threadOpen=i; rc.sec='texts'; rcRender(); toast('Texting '+who); } else { rcRender(); toast('Text'); } }
 function rcRefill(who){ rc.tasks.unshift({id:Date.now(),t:'Refill request'+(who?' — '+who:''),who:who||'',done:false}); rcRender(); toast('Refill routed to clinical queue'); }
 function rcEscalate(){ toast('Warm transfer to triage nurse — context shared'); }
 function rcSetReason(v){ rc.callReason=v; }
@@ -801,7 +813,7 @@ function rcSchedHtml(){
     +'<input class="rcp-input" id="rc-bk-prov" placeholder="Provider (e.g. Dr. Liu)">'
     +'<input class="rcp-input" id="rc-bk-time" placeholder="Day & time (e.g. Thu 3:00)">'
     +'<button class="rcp-callbtn" style="background:var(--teal);height:46px" onclick="rcBook()">'+svg(ICON.cal,'ic ic-sm')+'Book it</button></div>';
-  return '<div class="rcp-grid2"><div>'+left+'</div><div>'+right+'</div></div>';
+  return '<div class="rcp-grid2"><div>'+left+'</div><div>'+right+'</div></div>'+rcWaitlistHtml();
 }
 function rcPatientRows(q){
   const list=provider.patients.map((p,idx)=>({p:p,idx:idx})).filter(o=> !q || (o.p.name+' '+(o.p.phone||'')).toLowerCase().includes(q));
@@ -838,6 +850,27 @@ function rcNotesHtml(){
     +'<div style="display:flex;gap:8px"><input class="rcp-input" id="rc-note" style="margin:0" placeholder="Add a note…"><button class="rcp-mini" style="margin:0" onclick="rcAddNote(\'\',\'rc-note\')">Save</button></div>'
     +'<div style="margin-top:12px">'+(rc.notes.length?rc.notes.map(noteRow).join(''):'<div class="rcp-empty">No notes.</div>')+'</div>';
 }
+function rcTextsHtml(){
+  if(rc.threadOpen!=null){
+    const th=rc.threads[rc.threadOpen]; if(!th){ rc.threadOpen=null; return rcTextsHtml(); }
+    const bubbles=th.msgs.length?th.msgs.map(m=>'<div style="max-width:80%;'+(m.me?'align-self:flex-end;background:var(--teal);color:#fff':'align-self:flex-start;background:var(--panel-2);border:1px solid var(--line)')+';padding:8px 11px;border-radius:12px;font-size:13px;line-height:1.4">'+m.t+'<div style="font-size:10px;opacity:.6;margin-top:2px">'+m.at+'</div></div>').join(''):'<div class="rcp-empty">New conversation — say hello.</div>';
+    return '<div class="rcp-narrow"><div class="card"><div class="ct"><button class="rcp-mini" style="margin:0 8px 0 0" onclick="rcCloseThread()">‹ Texts</button>'+th.who+' <span class="sm">SMS</span></div>'
+      +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">'+bubbles+'</div>'
+      +'<div style="display:flex;gap:8px"><input class="rcp-input" id="rc-sms" style="margin:0" placeholder="Type a message…"><button class="rcp-mini" style="margin:0" onclick="rcSendSms()">Send</button></div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="rcp-mini" onclick="rcSmsTemplate(\'reschedule\')">+ Reschedule link</button><button class="rcp-mini" onclick="rcSmsTemplate(\'reminder\')">+ Reminder</button><button class="rcp-mini" onclick="rcSmsTemplate(\'forms\')">+ Intake forms</button></div></div></div>';
+  }
+  const rows=rc.threads.map((t,i)=>{const last=t.msgs[t.msgs.length-1]; return '<div class="rcp-item" style="cursor:pointer" onclick="rcOpenThread('+i+')"><span class="rcp-ico'+(t.unread?' new':'')+'">'+svg(ICON.chat,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+t.who+(t.unread?' <span class="chip new" style="margin-left:4px">'+t.unread+' new</span>':'')+'</div><div class="mt">'+(last?last.t.slice(0,46):'New conversation')+'</div></div></div>';}).join('');
+  return '<div class="rcp-narrow"><div class="rcp-sub" style="margin-top:4px">Two-way texts</div>'+(rows||'<div class="rcp-empty">No texts yet.</div>')+'</div>';
+}
+function rcOpenThread(i){ rc.threadOpen=i; if(rc.threads[i]) rc.threads[i].unread=0; rc.sec='texts'; rcRender(); }
+function rcCloseThread(){ rc.threadOpen=null; rcRender(); }
+function rcSendSms(){ const v=rcVal('rc-sms'); if(!v||rc.threadOpen==null) return; rc.threads[rc.threadOpen].msgs.push({me:true,t:v,at:'now'}); rcRender(); toast('Text sent'); }
+function rcSmsTemplate(k){ if(rc.threadOpen==null) return; const map={reschedule:'Here is a link to reschedule your appointment: liftori.me/r/9X2',reminder:'Reminder: your visit is tomorrow. Reply C to confirm or R to reschedule.',forms:'Please complete your intake before your visit: liftori.me/f/AB7'}; rc.threads[rc.threadOpen].msgs.push({me:true,t:map[k],at:'now'}); rcRender(); toast('Sent'); }
+function rcCallback(i){ const c=rc.queue[i]; if(!c) return; rc.callbacks.push({who:c.who,from:c.from,reason:c.reason}); rc.queue.splice(i,1); rcRender(); toast('Callback queued for '+c.who+' — they keep their place'); }
+function rcCallbacksHtml(){ if(rc.tab!=='queue'||!rc.callbacks.length) return ''; return '<div class="rcp-sub">Callback requests ('+rc.callbacks.length+')</div>'+rc.callbacks.map((c,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.refresh,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+c.who+'</div><div class="mt">'+c.reason+' · '+c.from+'</div></div><button class="rcp-mini" onclick="rcDoCallback('+i+')">Call back</button></div>').join(''); }
+function rcDoCallback(i){ const c=rc.callbacks[i]; if(!c) return; rc.callbacks.splice(i,1); rc.active={who:c.who,from:c.from,out:true,patient:provider.patients.some(p=>p.name===c.who),reason:'Callback · '+c.reason}; rc.sec='phone'; rcRender(); rcTick(); toast('Calling '+c.who+' back'); }
+function rcWaitlistHtml(){ if(!rc.waitlist.length) return ''; const openSlot=provider.schedule.find(r=>r.patient==='Open'); return '<div class="card" style="margin-top:16px"><div class="ct">Waitlist <span class="sm">'+rc.waitlist.length+' waiting'+(openSlot?' · open slot available':'')+'</span></div>'+rc.waitlist.map((w,i)=>'<div class="rcp-item"><span class="rcp-ico">'+svg(ICON.clock,'ic ic-sm')+'</span><div style="flex:1"><div class="nm">'+w.who+'</div><div class="mt">'+w.pref+'</div></div><button class="rcp-mini" onclick="rcWaitFill('+i+')"'+(openSlot?'':' disabled style="opacity:.5"')+'>Offer slot</button></div>').join('')+'</div>'; }
+function rcWaitFill(i){ const w=rc.waitlist[i]; if(!w) return; const open=provider.schedule.find(r=>r.patient==='Open'); if(!open){ toast('No open slot right now'); return; } open.patient=w.who; open.v='Waitlist fill'; open.chip='new'; open.chipL='Filled from waitlist'; open.flash=true; setTimeout(()=>{const o=provider.schedule.find(r=>r.flash);if(o)o.flash=false;},1700); rc.waitlist.splice(i,1); rcRender(); toast('Offered the open slot to '+w.who); }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
