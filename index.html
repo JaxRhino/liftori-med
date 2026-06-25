@@ -970,7 +970,7 @@ async function rcVideoLink(who){
   try{ navigator.clipboard.writeText(link); }catch(e){}
   rcRender(); toast('Video link created'+(who?(' & texted to '+who):'')+' (copied)');
 }
-const vz={token:null,visit:null,joined:false,stream:null,muted:false,camoff:false};
+const vz={token:null,visit:null,joined:false,stream:null,remoteStream:null,muted:false,camoff:false,clientId:Math.random().toString(36).slice(2,10),sb:null,channel:null,peers:{},connected:false};
 async function vzBoot(){
   document.body.className='rcp';
   vz.token=new URLSearchParams(location.search).get('room');
@@ -987,19 +987,55 @@ function vzRender(){
   document.body.innerHTML='<div class="rcp-wrap" style="max-width:820px"><div class="rcp-top"><div class="wm">Liftori<span class="g">·</span><b>Med</b> · Video</div></div><div class="rcp-body"><div class="card" style="text-align:center;padding:24px">'+inner+'</div></div><div class="toast" id="toast"></div></div>';
 }
 function vzRoomHtml(){
-  return '<div style="position:relative;background:var(--deep-2);border-radius:16px;overflow:hidden;height:420px"><video id="vz-local" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;background:#0A312E"></video>'
-    +'<div style="position:absolute;top:12px;left:14px;font-size:12px;color:#CFE3DF;background:rgba(0,0,0,.35);padding:5px 11px;border-radius:999px">Connected · waiting for the other participant…</div>'
+  const waiting=!vz.connected;
+  return '<div style="position:relative;background:var(--deep-2);border-radius:16px;overflow:hidden;height:440px">'
+    +'<video id="vz-remote" autoplay playsinline style="width:100%;height:100%;object-fit:cover;background:#0A312E"></video>'
+    +(waiting?'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8FB5AF;font-size:14px">Waiting for the other participant to join…</div>':'')
+    +'<video id="vz-local" autoplay playsinline muted style="position:absolute;bottom:14px;right:14px;width:118px;height:158px;object-fit:cover;border-radius:12px;background:#16433f;border:1px solid rgba(255,255,255,.15)"></video>'
+    +'<div style="position:absolute;top:12px;left:14px;font-size:12px;color:#CFE3DF;background:rgba(0,0,0,.35);padding:5px 11px;border-radius:999px">'+(vz.connected?'Connected':'Connecting…')+'</div>'
     +'<div style="position:absolute;bottom:16px;left:0;right:0;display:flex;gap:12px;justify-content:center">'
     +'<button onclick="vzMute()" style="width:48px;height:48px;border-radius:50%;background:'+(vz.muted?'#16A89B':'rgba(255,255,255,.15)')+';border:none;color:#fff;display:inline-flex;align-items:center;justify-content:center">'+svg(ICON.mic)+'</button>'
     +'<button onclick="vzCam()" style="width:48px;height:48px;border-radius:50%;background:'+(vz.camoff?'#16A89B':'rgba(255,255,255,.15)')+';border:none;color:#fff;display:inline-flex;align-items:center;justify-content:center">'+svg(ICON.video)+'</button>'
     +'<button onclick="vzLeave()" style="width:48px;height:48px;border-radius:50%;background:var(--alert);border:none;color:#fff;display:inline-flex;align-items:center;justify-content:center">'+svg(ICON.phone)+'</button></div></div>'
     +'<div class="mt" style="margin-top:12px">'+(vz.visit?vz.visit.title:'')+'</div>';
 }
-async function vzJoin(){ try{ vz.stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true}); }catch(e){ toast('Camera/mic permission needed'); } vz.joined=true; vzRender(); setTimeout(()=>{ const el=document.getElementById('vz-local'); if(el&&vz.stream) el.srcObject=vz.stream; },60); }
-function vzAttach(){ const el=document.getElementById('vz-local'); if(el&&vz.stream) el.srcObject=vz.stream; }
+const VZ_ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},{urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}]};
+async function vzJoin(){
+  try{ vz.stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true}); }catch(e){ toast('Camera/mic permission needed'); return; }
+  vz.joined=true; vzRender(); setTimeout(vzAttach,60);
+  try{
+    vz.sb=window.supabase.createClient(SB_URL,SB_KEY);
+    vz.channel=vz.sb.channel('visit-'+vz.token,{config:{broadcast:{self:false}}});
+    vz.channel.on('broadcast',{event:'sig'},m=>vzOnSignal(m.payload));
+    vz.channel.subscribe(st=>{ if(st==='SUBSCRIBED') vzSend({kind:'hello',from:vz.clientId}); });
+  }catch(e){}
+}
+function vzSend(p){ try{ if(vz.channel) vz.channel.send({type:'broadcast',event:'sig',payload:p}); }catch(e){} }
+function vzPeer(remoteId){
+  if(vz.peers[remoteId]) return vz.peers[remoteId];
+  const pc=new RTCPeerConnection(VZ_ICE);
+  if(vz.stream) vz.stream.getTracks().forEach(t=>pc.addTrack(t,vz.stream));
+  pc.onicecandidate=e=>{ if(e.candidate) vzSend({kind:'ice',to:remoteId,from:vz.clientId,candidate:e.candidate}); };
+  pc.ontrack=e=>{ vz.remoteStream=e.streams[0]; vz.connected=true; vzRender(); setTimeout(vzAttach,60); };
+  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='disconnected'||pc.connectionState==='failed'||pc.connectionState==='closed'){ vz.connected=false; vzRender(); } };
+  vz.peers[remoteId]=pc; return pc;
+}
+async function vzStartOffer(remoteId){ const pc=vzPeer(remoteId); try{ const o=await pc.createOffer(); await pc.setLocalDescription(o); vzSend({kind:'offer',to:remoteId,from:vz.clientId,sdp:o}); }catch(e){} }
+async function vzOnSignal(p){
+  if(!p||p.from===vz.clientId) return;
+  if(p.kind==='hello'){ if(!vz.peers[p.from]){ vzSend({kind:'hello',from:vz.clientId}); if(vz.clientId>p.from) vzStartOffer(p.from); } return; }
+  if(p.to&&p.to!==vz.clientId) return;
+  try{
+    if(p.kind==='offer'){ const pc=vzPeer(p.from); await pc.setRemoteDescription(p.sdp); const a=await pc.createAnswer(); await pc.setLocalDescription(a); vzSend({kind:'answer',to:p.from,from:vz.clientId,sdp:a}); }
+    else if(p.kind==='answer'){ const pc=vz.peers[p.from]; if(pc) await pc.setRemoteDescription(p.sdp); }
+    else if(p.kind==='ice'){ const pc=vz.peers[p.from]; if(pc&&p.candidate) await pc.addIceCandidate(p.candidate); }
+    else if(p.kind==='bye'){ const pc=vz.peers[p.from]; if(pc){ pc.close(); delete vz.peers[p.from]; } vz.remoteStream=null; vz.connected=false; vzRender(); }
+  }catch(e){}
+}
+function vzAttach(){ const l=document.getElementById('vz-local'); if(l&&vz.stream) l.srcObject=vz.stream; const r=document.getElementById('vz-remote'); if(r&&vz.remoteStream) r.srcObject=vz.remoteStream; }
 function vzMute(){ if(vz.stream){ vz.muted=!vz.muted; vz.stream.getAudioTracks().forEach(t=>t.enabled=!vz.muted); } vzRender(); setTimeout(vzAttach,60); }
 function vzCam(){ if(vz.stream){ vz.camoff=!vz.camoff; vz.stream.getVideoTracks().forEach(t=>t.enabled=!vz.camoff); } vzRender(); setTimeout(vzAttach,60); }
-function vzLeave(){ if(vz.stream) vz.stream.getTracks().forEach(t=>t.stop()); vz.stream=null; vz.joined=false; vzRender(); }
+function vzLeave(){ try{ vzSend({kind:'bye',from:vz.clientId}); }catch(e){} Object.keys(vz.peers).forEach(k=>{ try{ vz.peers[k].close(); }catch(e){} }); vz.peers={}; if(vz.channel&&vz.sb){ try{ vz.sb.removeChannel(vz.channel); }catch(e){} } if(vz.stream) vz.stream.getTracks().forEach(t=>t.stop()); vz.stream=null; vz.remoteStream=null; vz.connected=false; vz.joined=false; vzRender(); }
 function rcSecGo(s){ rc.sec=s; if(s!=='patients') rc.selP=null; rcRender(); }
 function rcFilter(){ const q=((document.getElementById('rc-psearch')||{}).value||'').toLowerCase(); const el=document.getElementById('rc-presults'); if(el) el.innerHTML=rcPatientRows(q); }
 function rcAddToggle(){ rc.addP=!rc.addP; rcRender(); }
