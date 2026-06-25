@@ -447,4 +447,52 @@ function scrFind(){
       +'</div>'+(patient.booking.slot!=null?'<button class="pbtn alt" onclick="confirmBooking()" style="margin-top:16px">Confirm '+patient.booking.label+'</button>':'<button class="pbtn ghost" style="margin-top:16px">Pick a time</button>');
   }
   if(findStep==='done'){
-    return '<div class="success"><div class="ring">'+svg(ICON.check)+'</div><h3>You�
+    return '<div class="success"><div class="ring">'+svg(ICON.check)+'</div><h3>You’re booked</h3><p>'+patient.booking.label+' with Dr. Liu. We texted your intake forms and a reminder — and it’s already on the clinic’s schedule.</p>'
+      +'<button class="pbtn alt" onclick="goTab(\'home\')" style="margin-top:18px">Back to home</button></div>';
+  }
+}
+function pickProvider(){patient.booking.provider='Dr. Liu';findStep='slots';renderPbody();}
+function pickSlot(i,d,t){patient.booking.slot=i;patient.booking.label=d+', '+t;renderPbody();}
+function confirmBooking(){
+  findStep='done';
+  patient.next={title:'Therapy · Dr. Liu', when:patient.booking.label, has:true};
+  // reflect on provider schedule (two-sided)
+  const open=provider.schedule.find(r=>r.patient==='Open');
+  if(open){open.patient='Maria G.';open.v='Therapy · Dr. Liu';open.chip='new';open.chipL='Booked in app';}
+  provider.feed.unshift({ic:'check',cls:'g',tx:'<b>Patient self-booked</b> — Maria G. booked '+patient.booking.label+' with Dr. Liu in the app.',meta:'just now · patient app'});
+  provider.feed=provider.feed.slice(0,5);
+  provider.metrics.booked++;
+  renderMain();
+  renderPbody();
+  toast('Booked — and synced to the clinic');
+}
+function goVideo(){pTab='video';renderPtabs();renderPbody();}
+function scrVideo(){
+  return '<div class="vid" style="margin:-6px -18px 0;border-radius:0">'
+    +'<div class="bigav">RP</div><div class="vn">Dr. Renee Patel</div><div class="vs">Connected · secure</div>'
+    +'<div class="ptile">You</div>'
+    +'<div class="vctrl"><button class="vbtn">'+svg(ICON.mic)+'</button><button class="vbtn">'+svg(ICON.video)+'</button><button class="vbtn end" onclick="goTab(\'home\')">'+svg(ICON.phone)+'</button></div></div>';
+}
+function scrMessages(){
+  return '<div class="stitle">Messages</div>'
+    +'<div class="pcard" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="av2" style="width:34px;height:34px;font-size:12px">RP</span><div><div style="font-size:13px;font-weight:600">Dr. Patel’s office</div><div style="font-size:11px;color:var(--faint)">usually replies within an hour</div></div></div>'
+    +'<div class="msgthread" style="border:none;padding:0;min-height:auto;gap:8px">'
+    +'<div class="msg them">Hi Maria — your refill is ready at your pharmacy.</div>'
+    +'<div class="msg me">Thank you! Anything I need to do before Thursday?</div>'
+    +'<div class="msg them">Just the intake form in your app. Takes 2 minutes.</div></div>'
+    +'<button class="pbtn ghost" style="margin-top:14px">Write a message</button></div>';
+}
+function scrRecords(){
+  return '<div class="stitle">Records &amp; meds</div>'
+    +'<div class="plab" style="margin-top:14px">Medications</div>'
+    +patient.meds.map(m=>'<div class="medrow"><span class="mi">'+svg(ICON.pill,'ic ic-sm')+'</span><div><div class="mn">'+m.n+'</div><div class="md">'+m.d+'</div></div><div class="price"><b>'+m.price+'</b><span>'+m.sub+'</span></div></div>').join('')
+    +'<div class="plab" style="margin-top:18px">Recent visit</div>'
+    +'<div class="pcard"><div style="font-size:13px;font-weight:600">Med management · Dr. Patel</div><div style="font-size:11.5px;color:var(--faint);margin-top:2px">Jun 3, 2026 · telehealth</div>'
+    +'<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5">Summary, plan, and any new prescriptions appear here automatically after each visit — in plain language.</div></div>';
+}
+
+/* ---------------- init ---------------- */
+renderNav();renderMain();renderPtabs();
+</script>
+</body>
+</html>
